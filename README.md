@@ -253,6 +253,14 @@ window.__glpythonMount = (args, send) => {
     const aceOptions = (editor.getAttribute("data-ace-options") ?? "").split(/[\s,]+/).map((entry) => entry.split("=")[0])
     if (!editor.hasAttribute("data-tabsize") && !aceOptions.includes("tabSize") && editor.tabSize !== 4) editor.tabSize = 4
     if (!aceOptions.includes("useSoftTabs") && editor.useSoftTabs !== true) editor.useSoftTabs = true
+    // Since LiaScript 2.1.1 every executable block completes as one types and
+    // expands snippets: a word like "if" + Enter, or + Tab, became a whole
+    // statement, also in a docstring. Off in glpython blocks, the same way and
+    // with the same exceptions as above. Ctrl+Space still completes a name on
+    // request (keywords and the block's words, no snippets).
+    for (const option of ["enableLiveAutocompletion", "enableSnippets"]) {
+      if (option in editor && !aceOptions.includes(option) && editor[option] !== false) editor[option] = false
+    }
   }
 
   // Every code block right before the iframe (LiaScript groups consecutive
@@ -821,8 +829,12 @@ does not reserve space for turtle graphics.
 
 The macro makes the block's editor indent with 4 spaces: Tab inserts spaces, not
 LiaScript's default tab character, which would stop Python with a `TabError` in a block
-indented with spaces. A block's own `data-tabsize` or `data-ace-options` (e.g.
-`<!-- data-ace-options="useSoftTabs=false" -->`) still wins.
+indented with spaces. It also switches off the completion as one types and the
+snippets LiaScript turns on since version 2.1.1, so Enter is always a new line and Tab
+never expands a word (`if` + Enter became a whole `if` statement, also in a
+docstring); Ctrl+Space still completes a name on request. A block's own
+`data-tabsize` or `data-ace-options` (e.g. `<!-- data-ace-options="useSoftTabs=false" -->`
+or `enableLiveAutocompletion=true`) still wins.
 
 ## State and navigation
 
