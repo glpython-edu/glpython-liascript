@@ -495,8 +495,19 @@ window.__glpythonMount = (args, send) => {
     postProgram(type, fallbackSource)
   }
 
+  // The command a button asked for when it went through LiaScript's run (see
+  // throughLiaScript): LiaScript's per-run script then calls run, which sends
+  // that command instead of a run - so Python runs once. A request older than
+  // 10 seconds (LiaScript didn't run the block) is dropped.
+  let commandAfterLiaRun = null
   const run = (fallbackSource) => {
     attach()
+    const requested = commandAfterLiaRun
+    commandAfterLiaRun = null
+    if (requested && Date.now() - requested.at < 10000) {
+      if (runtimeReady) sendCommand(requested.type, fallbackSource)
+      return
+    }
     if (runtimeReady) {
       sendCommand("glpython:run", fallbackSource)
     } else {
@@ -552,14 +563,24 @@ window.__glpythonMount = (args, send) => {
   }
 
   // LiaScript's own run button (</>) of the block. It stays hidden: the macro's
-  // ▶ runs the block by clicking it, so LiaScript still saves edits and keeps
-  // its code history exactly as with its own button.
+  // ▶, «Tests» and «Visualisieren» click it, so LiaScript stores the block -
+  // a new entry in its code history, kept across a reload (from a course's
+  // version 1.0.0 on also across closing the tab) - exactly as with its own
+  // button. For «Tests» and «Visualisieren», run then sends their command
+  // instead of a run. Without LiaScript's button (no code block), the command
+  // goes to glpython directly.
   const liaScriptRunButton = () => codeBlock?.querySelector(".lia-code-control__action button") ?? null
-  const runThroughLiaScript = () => {
+  const throughLiaScript = (type) => {
     const button = liaScriptRunButton()
-    if (button) button.click()
-    else run()
+    if (!button) {
+      if (type) sendCommand(type)
+      else run()
+      return
+    }
+    commandAfterLiaRun = type ? { type, at: Date.now() } : null
+    button.click()
   }
+  const runThroughLiaScript = () => throughLiaScript(null)
 
   // The run button (▶ Run), and for blocks of several files its ▾ menu: ▶ runs
   // the chosen file (the last one until another is chosen).
@@ -647,7 +668,7 @@ window.__glpythonMount = (args, send) => {
     if (visualizeButton) {
       if (visualizeButton.textContent !== strings.visualize) visualizeButton.textContent = strings.visualize
       setShown(visualizeButton, mode === "eval" && hasFeature("visualize"))
-      visualizeButton.onclick = () => sendCommand("glpython:visualize")
+      visualizeButton.onclick = () => throughLiaScript("glpython:visualize")
     }
     if (resetButton) resetButton.onclick = () => sendCommand("glpython:reset")
     // Runs the doctests of the file that would run; shown once the embed
@@ -656,7 +677,7 @@ window.__glpythonMount = (args, send) => {
     if (testsButton) {
       if (testsButton.textContent !== strings.tests) testsButton.textContent = strings.tests
       setShown(testsButton, testsSupported && mode !== "visual" && hasFeature("tests"))
-      testsButton.onclick = () => sendCommand("glpython:test")
+      testsButton.onclick = () => throughLiaScript("glpython:test")
     }
     // An unknown name in features= is shown instead of ignored silently.
     const warning = document.getElementById(`glpython-warning-${sessionId}`)
@@ -791,7 +812,10 @@ sys.version
 LiaScript owns the visible editor and preserves its source through its course and PWA
 state. The **▶ Run** button below the block runs the current source through glpython:
 it triggers LiaScript's own run action, whose `</>` button is hidden, so LiaScript still
-saves edits and keeps its code history (the version arrows stay). The glpython runtime
+saves edits and keeps its code history (the version arrows stay). **Tests** and
+**Visualize** go through LiaScript's run action too, so they store the block in the same
+way - a new version only if the code changed - and then test or visualize it instead of
+running it: Python runs once. The glpython runtime
 provides output and the step-by-step visualizer without mounting a second editor. It
 does not reserve space for turtle graphics.
 
