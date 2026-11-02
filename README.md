@@ -77,7 +77,8 @@ window.__glpythonMount = (args, send) => {
       tests: "Tests",
       frameTitle: "glpython-Laufzeit",
       sourceUnreadable: "Der LiaScript-Quelltext konnte nicht gelesen werden.",
-      inputUnavailable: "Python-input() ist in dieser LiaScript-Einbettung nicht verfügbar.",
+      inputUnavailable: "input() funktioniert hier nicht: Diese Seite kann nicht auf eine Eingabe warten.",
+      inputInIde: "Programme mit input() laufen in der IDE, dort fragt die Konsole nach der Eingabe.",
       embedError: "Die glpython-Einbettung hat einen Fehler gemeldet.",
       runFile: (name) => `${name} ausführen`,
       chooseFile: "Datei zum Ausführen wählen",
@@ -107,7 +108,8 @@ window.__glpythonMount = (args, send) => {
       tests: "Tests",
       frameTitle: "glpython runtime",
       sourceUnreadable: "The LiaScript source block could not be read.",
-      inputUnavailable: "Python input() is unavailable in this LiaScript embedding context.",
+      inputUnavailable: "input() doesn't work here: this page can't wait for an answer.",
+      inputInIde: "Programs with input() run in the IDE, where the console asks for the input.",
       embedError: "The glpython embed reported an error.",
       runFile: (name) => `Run ${name}`,
       chooseFile: "Choose the file to run",
@@ -337,10 +339,23 @@ window.__glpythonMount = (args, send) => {
   libraries.then(showLibraries)
   window.__glpythonLzString.then((library) => { lzString = library; attach() }, () => {})
 
+  // A program with input() where the embed can't wait for an answer (no
+  // cross-origin isolation, as in LiaScript): with "ide", the way to the
+  // IDE, whose console asks for the input.
   const reportInputCapability = (source) => {
     if (!error) return
     if (!inputAvailable && /(^|[^\w])input\s*\(/.test(source)) {
-      showError(strings.inputUnavailable)
+      if (mode === "visual" || !hasFeature("ide")) {
+        showError(strings.inputUnavailable)
+        return
+      }
+      const open = document.createElement("button")
+      open.type = "button"
+      open.className = "glp-button glp-button--ide"
+      open.textContent = strings.openInIde
+      open.onclick = openInIde
+      error.replaceChildren(`${strings.inputInIde} `, open)
+      error.hidden = false
     } else {
       error.hidden = true
     }
@@ -430,6 +445,11 @@ window.__glpythonMount = (args, send) => {
     }
   }
 
+  const openInIde = () => {
+    const link = ideLink()
+    if (link) window.open(link, "_blank", "noopener")
+  }
+
   // The split button: «IDE-Link kopieren» in front - the learners' hand-in -
   // and «In IDE öffnen» in its ▾ menu. Both act right in the tap's handler.
   const updateIdeButton = () => {
@@ -471,8 +491,7 @@ window.__glpythonMount = (args, send) => {
     if (item.title !== strings.openInIdeTitle) item.title = strings.openInIdeTitle
     item.onclick = () => {
       closeMenu()
-      const link = ideLink()
-      if (link) window.open(link, "_blank", "noopener")
+      openInIde()
     }
   }
 
@@ -1087,9 +1106,13 @@ https://glpython-edu.github.io/glpython-editor/
 The embed protocol is versioned independently of the course template.
 Synchronous Python `input()` depends on cross-origin isolation in the complete
 top-level LiaScript embedding context. The iframe reports that capability during
-its handshake. If a snippet uses `input()` where the capability is unavailable,
-the macro displays a warning; editing, normal execution, visualization, and
-turtle graphics remain available.
+its handshake. LiaScript's player isn't isolated, so there `input()` doesn't
+work: the program stops with `RuntimeError: input() is not available here` and a
+hint below it. If a snippet uses `input()` where the capability is unavailable,
+the macro also says that such programs run in the glpython IDE, whose console
+asks for the input, with an «In IDE öffnen» button when the block has the
+`ide` feature (else only that `input()` doesn't work here). Editing, normal
+execution, visualization, and turtle graphics remain available.
 
 ## Development
 
