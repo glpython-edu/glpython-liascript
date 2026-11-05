@@ -41,12 +41,13 @@ window.__glpythonMount = (args, send) => {
   const libraryUrls = options.filter((option) => /^https?:\/\//.test(option))
   // "features=run,repl,…" shows only these parts (the course builds its
   // profiles from it); without it, everything shows - except "coverage"
-  // (after Tests, the lines no example executed), which a course switches on
+  // (after Tests, the lines no example executed) and "listtree" (lists such
+  // as ["+", 2, 3] also drawn as a tree), which a course switches on
   // explicitly. "large" enlarges the code and the visualizer, e.g. for a demo
   // on the projector.
-  const featureNames = ["run", "tests", "visualize", "reset", "repl", "export", "ide", "coverage"]
+  const featureNames = ["run", "tests", "visualize", "reset", "repl", "export", "ide", "coverage", "listtree"]
   const featuresOption = options.find((option) => option.startsWith("features="))
-  const requestedFeatures = featuresOption ? featuresOption.slice("features=".length).split(",").map((name) => name.trim()).filter(Boolean) : featureNames.filter((name) => name !== "coverage")
+  const requestedFeatures = featuresOption ? featuresOption.slice("features=".length).split(",").map((name) => name.trim()).filter(Boolean) : featureNames.filter((name) => name !== "coverage" && name !== "listtree")
   const unknownFeatures = requestedFeatures.filter((name) => !featureNames.includes(name))
   const hasFeature = (name) => requestedFeatures.includes(name)
   const large = options.includes("large")
@@ -1068,6 +1069,14 @@ examples check the edge cases. Coverage finds untested code, not wrong code:
 counts, not libraries or other files, and only lines in function bodies (not
 `def` lines, docstrings or code outside functions). Nothing is marked in the
 block's code editor; the report gives the line and its code.
+
+`listtree` isn't part of «everything» either. It draws a list whose first
+element is a string, such as `["+", 2, ["*", 3, 4]]`, also as a tree: in the
+visualizer's variables (a wide tree behind «Baum zeigen»), in the full value's
+window, and in the console, where such a value gets a «Baum» button next to
+«Visualisieren». The visualizer's ⋮ menu can switch the trees off («Listen als
+Baum zeigen»). Each tree is described by the list's own text for screen
+readers.
 `large` makes the code 20px (line height 1.6) and the visualizer at least 60% of
 the window, e.g. for the projector in presentation mode.
 
