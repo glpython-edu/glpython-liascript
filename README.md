@@ -723,6 +723,10 @@ window.__glpythonMount = (args, send) => {
     const query = new URLSearchParams({ parentOrigin: window.location.origin, mode, lang: language })
     if (visualizerMode) query.set("visualizer", visualizerMode)
     if (featuresOption) query.set("features", requestedFeatures.filter((name) => featureNames.includes(name)).join(","))
+    // The course window's height, which the iframe can't see: while
+    // visualizing, the embed keeps one height (that of the tallest step), at
+    // most 80% of it - a taller step scrolls inside the visualizer.
+    query.set("windowHeight", String(window.innerHeight))
     if (large) {
       query.set("size", "large")
       query.set("visualizerHeight", String(largeVisualizerHeight))
@@ -1079,6 +1083,12 @@ Baum zeigen»). Each tree is described by the list's own text for screen
 readers.
 `large` makes the code 20px (line height 1.6) and the visualizer at least 60% of
 the window, e.g. for the projector in presentation mode.
+
+While stepping through a visualization, the block keeps one height, so the
+course page doesn't move: the visualizer is as tall as the tallest step from
+the start, and the console as tall as the output at the last step. The
+visualizer is at most 80% of the course window; a taller step (e.g. a deep
+recursion in «Kasten») scrolls inside it, following the current step.
 
 A course builds its own profiles from these options as macros in its header,
 passing `@0` on so a block can add more options (a mode or library URLs):
