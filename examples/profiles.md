@@ -18,6 +18,8 @@ import:   https://raw.githubusercontent.com/glpython-edu/glpython-liascript/main
 
 @Code.voll: @GLPython.eval(@0)
 
+@Code.baum: @GLPython.eval(features=run,repl,visualize,ide,listtree @0)
+
 @Code.demo: @GLPython.visual(large @0)
 -->
 
@@ -33,6 +35,7 @@ Jede Folie zeigt ein Profil des Kurses. Die Profile sind Makros des Kurses, die
 | rezept3  | `features=run,repl,visualize,tests,ide,coverage` |
 | pruefung | `features=run`                                 |
 | voll     | (alles)                                        |
+| baum     | `features=run,repl,visualize,ide,listtree`     |
 | demo     | `@GLPython.visual(large)`                      |
 
 ## erkunden
@@ -185,7 +188,7 @@ print(quadrat(7))
 
 ## voll
 
-Ohne `features=`: alles wie bisher.
+Ohne `features=`: alles wie bisher, ohne Abdeckung und ohne Bäume.
 
 ```python
 def quadrat(x):
@@ -198,6 +201,20 @@ def quadrat(x):
 print(quadrat(7))
 ```
 @Code.voll
+
+## baum
+
+Listen wie `["+", 2, 3]` auch als Baum: in den Variablen des Visualisierers, im
+Fenster des ganzen Werts und in der Konsole (Knopf «Baum», z. B. nach
+`ausdruck` in der Eingabezeile).
+
+```python
+ausdruck = ["+", 2, ["*", 3, 4]]
+zahlen = [1, 2, 3]
+breit = ["f", ["g", "erstes", "zweites"], ["h", "drittes", "viertes"], ["k", "fünftes"]]
+print(ausdruck)
+```
+@Code.baum
 
 ## demo
 
