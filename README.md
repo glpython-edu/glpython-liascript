@@ -496,7 +496,11 @@ window.__glpythonMount = (args, send) => {
     }
   }
 
+  // Every program sent counts, so a first program still waiting for the
+  // block's text (see sendOnceBlockHasText) knows it was overtaken.
+  let programsSent = 0
   const postProgram = async (type, fallbackSource) => {
+    programsSent += 1
     const program = await readProgram(fallbackSource)
     if (!program || !frame?.contentWindow) return
     const main = program.files.find((file) => file.path === program.mainFile)
@@ -521,6 +525,54 @@ window.__glpythonMount = (args, send) => {
       return
     }
     postProgram(type, fallbackSource)
+  }
+
+  // The first program, sent on "ready", may find the block without its text:
+  // when a LiaScript fragment appears, LiaScript creates the block's editor
+  // and this iframe together, and fills the editor a few milliseconds later
+  // (once its Ace editor exists), while a cached embed can be ready sooner.
+  // So while all of the block's editors are still empty, it waits for their
+  // text: for Ace's change event (LiaScript's own editorUpdate doesn't come
+  // for the text it sets itself) and for attach(), which runs on every DOM
+  // change (an editor not yet connected). At most editorTextTimeout ms, as
+  // a block may be empty on purpose. Nothing else waits: a program sent
+  // meanwhile (▶, Tests, a file chosen) carries the block as it is then, and
+  // the first one is dropped.
+  const editorTextTimeout = 2000
+  let textWait = null
+  const blockHasText = () => (readCodeFiles() ?? []).some((file) => file.source !== "")
+  const sendOnceBlockHasText = (type) => {
+    textWait?.stop()
+    const sentBefore = programsSent
+    const listeners = []
+    const stop = () => {
+      window.clearTimeout(timer)
+      for (const remove of listeners) remove()
+      if (textWait === wait) textWait = null
+    }
+    const check = () => {
+      if (programsSent !== sentBefore) return stop()
+      if (blockHasText()) {
+        stop()
+        sendCommand(type)
+        return
+      }
+      for (const editor of codeBlock?.querySelectorAll("lia-editor") ?? []) {
+        const ace = editor.env?.editor
+        if (!ace || listeners.some((listener) => listener.ace === ace)) continue
+        ace.on("change", check)
+        const remove = () => ace.off("change", check)
+        remove.ace = ace
+        listeners.push(remove)
+      }
+    }
+    const timer = window.setTimeout(() => {
+      stop()
+      if (programsSent === sentBefore) sendCommand(type)
+    }, editorTextTimeout)
+    const wait = { check, stop }
+    textWait = wait
+    check()
   }
 
   // The command a button asked for when it went through LiaScript's run (see
@@ -558,11 +610,9 @@ window.__glpythonMount = (args, send) => {
       stopSupported = message.capabilities?.stop === true
       pythonBusy = false
       frame.dataset.inputAvailable = String(inputAvailable)
-      sendCommand(mode === "visual" ? "glpython:visualize" : "glpython:load")
-      if (pendingRun) {
-        sendCommand("glpython:run")
-        pendingRun = false
-      }
+      // A run asked for before (pendingRun) carries the program itself.
+      sendOnceBlockHasText(pendingRun ? "glpython:run" : mode === "visual" ? "glpython:visualize" : "glpython:load")
+      pendingRun = false
       for (const id of ["visualize", "reset", "run", "run-menu", "tests"]) {
         const button = document.getElementById(`glpython-${id}-${sessionId}`)
         if (button) button.disabled = false
@@ -673,6 +723,8 @@ window.__glpythonMount = (args, send) => {
     if (frame !== nextFrame) {
       runtimeReady = false
       pythonBusy = false
+      // The new iframe says "ready" again.
+      textWait?.stop()
     }
     frame = nextFrame
     error = document.getElementById(`glpython-error-${sessionId}`)
@@ -715,6 +767,7 @@ window.__glpythonMount = (args, send) => {
     for (const editor of codeBlock?.querySelectorAll("lia-editor") ?? []) indentWithSpaces(editor)
     updateRunButton(readCodeFiles() ?? [])
     updateIdeButton()
+    textWait?.check()
     libraries.then(showLibraries)
     if (frame.dataset.glpythonInitialized === "true") return
     frame.dataset.glpythonInitialized = "true"
@@ -874,6 +927,13 @@ serialized. **Reset** also terminates the current worker and creates a clean
 one. The post-run REPL below the output uses this per-block worker lifecycle: Run
 keeps the program's namespace while the worker survives, and Reset discards it
 without changing LiaScript's source.
+
+When the iframe is ready, the macro sends it the block's source - for
+`@GLPython.visual` that starts the visualization. A block inside a fragment
+(`{{1}}`) gets its editor only when the fragment appears, and LiaScript fills
+the editor a moment later; so while the block's code is still empty, the macro
+waits for it, at most 2 seconds (a block may be empty on purpose). Run, Tests
+and the REPL don't wait.
 
 ## Turtle graphics
 
@@ -1143,8 +1203,17 @@ https://liascript.github.io/LiveEditor/?/show/file/https://raw.githubusercontent
 ```
 
 `node scripts/check-macro.mjs` checks the syntax of the template's `<script>`
-blocks with `node --check`; CI runs it on every pull request and on `main`,
-since a merge to `main` reaches every course.
+blocks with `node --check`. `npm run check:ready` (after `npm ci`; it needs
+Chrome) runs the `@onload` code on a test page with stand-ins for LiaScript's
+editor and the embed, and checks the first program sent on "ready": with text
+that arrives after "ready", with an empty block, with several files. CI runs
+both on every pull request and on `main`, since a merge to `main` reaches every
+course.
+
+`npm run check:player` checks the same with the real LiaScript player, the live
+embed and a small course (`scripts/player/course.md`: a visualization in a
+fragment, visited several times so the embed comes from the cache). It needs
+those sites, so it isn't part of CI; run it before a release.
 
 For local embed development, change `embedOrigin` and `embedUrl` in the template
 header to the origin printed by `npm run dev:embed` in `glpython-editor`.

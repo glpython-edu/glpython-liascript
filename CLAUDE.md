@@ -20,9 +20,11 @@ The macro renders a button row below the block's LiaScript code editor and an if
 
 ```bash
 node scripts/check-macro.mjs   # node --check on every <script> block of README.md
+npm ci && npm run check:ready  # the first program on "ready", in Chrome: @onload on a test page with a stand-in lia-editor and a stub embed
+npm run check:player [visits]  # the same with the real LiaScript player and the live embed (scripts/player/course.md); not in CI
 ```
 
-That is the only automated check, and CI runs it on pull requests and on `main`. LiaScript replaces placeholders (`@0`, `@'input`, …) before running a block, so keep every placeholder inside a string literal, or the check fails, as it would in most courses.
+CI runs `check-macro` and `check:ready` on pull requests and on `main`. LiaScript replaces placeholders (`@0`, `@'input`, …) before running a block, so keep every placeholder inside a string literal, or the check fails, as it would in most courses. `check:ready` serves everything through Playwright routes, so it needs no external site; add cases for what the macro sends there. `check:player` depends on liascript.github.io, the embed and the CDNs, so it must never block a merge; run it before a release.
 
 ## Testing in LiaScript
 
@@ -32,6 +34,7 @@ Nothing runs LiaScript automatically, so test a change in the hosted player:
 - **Before/after:** compare with `git show main:README.md` served next to it.
 - **Selecting the editors:** use `.lia-code--block lia-editor`. LiaScript also has a hidden chat `lia-editor`. Ace is reachable as `element.env.editor`.
 - **Re-renders:** LiaScript recreates a slide's editors when the slide is shown again (next slide and back).
+- **A new editor's text arrives late:** Elm sets `value` on a new `lia-editor`, which waits for its Ace editor (`getSession`, polling every 100 ms) and sets the text with its own events blocked: no `editorUpdate` for it, only Ace's `change`. The embed's iframe (`loading="lazy"`) loads when its fragment appears, and a cached embed says `ready` in a few milliseconds, before the text. So the first program waits while the block's editors are all empty (`sendOnceBlockHasText`).
 - **Without hosting:** the README's «Development» section has the LiveEditor link. For a local embed, point `embedOrigin`/`embedUrl` at glpython-editor's `npm run build:embed && npm run preview:embed`. That README still says `dev:embed`, which 404s (see glpython-editor's CLAUDE.md).
 
 ## How LiaScript behaves (source: github.com/LiaScript/LiaScript)

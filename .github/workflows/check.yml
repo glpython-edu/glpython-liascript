@@ -20,3 +20,6 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-macro.mjs
+      - run: npm ci
+      # Chrome is installed on GitHub's runners; playwright-core drives it.
+      - run: npm run check:ready

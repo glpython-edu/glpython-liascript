@@ -1,0 +1,13 @@
+{
+  "name": "glpython-liascript",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-macro.mjs",
+    "check:ready": "node scripts/check-ready.mjs",
+    "check:player": "node scripts/check-player.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.48.2"
+  }
+}
