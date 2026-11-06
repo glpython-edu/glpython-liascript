@@ -20,6 +20,8 @@ import:   https://raw.githubusercontent.com/glpython-edu/glpython-liascript/main
 
 @Code.baum: @GLPython.eval(features=run,repl,visualize,ide,listtree @0)
 
+@Code.ausdruck: @GLPython.eval(features=run,repl,visualize,ide,tree,listtree @0)
+
 @Code.demo: @GLPython.visual(large @0)
 -->
 
@@ -36,6 +38,7 @@ Jede Folie zeigt ein Profil des Kurses. Die Profile sind Makros des Kurses, die
 | pruefung | `features=run`                                 |
 | voll     | (alles)                                        |
 | baum     | `features=run,repl,visualize,ide,listtree`     |
+| ausdruck | `features=run,repl,visualize,ide,tree,listtree` |
 | demo     | `@GLPython.visual(large)`                      |
 
 ## erkunden
@@ -215,6 +218,28 @@ breit = ["f", ["g", "erstes", "zweites"], ["h", "drittes", "viertes"], ["k", "f�
 print(ausdruck)
 ```
 @Code.baum
+
+## ausdruck
+
+Der Visualisierer mit dem dritten Modus «Baum»: ein Ausdruck als Baum, Schritt
+für Schritt ausgewertet. `notenschnitt` bleibt ein Kasten, mit dem Hinweis
+warum (auch in «Ersetzung»).
+
+```python
+def quadrat(x):
+    return x * x
+
+def notenschnitt(noten):
+    summe = sum(noten)
+    anzahl = len(noten)
+    return summe / anzahl
+
+x = (2 + 3) * 4
+y = quadrat(2 + 1)
+z = notenschnitt([4, 5, 4.5])
+baum = ["+", 2, ["*", 3, 4]]
+```
+@Code.ausdruck
 
 ## demo
 
