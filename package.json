@@ -8,6 +8,8 @@
     "check:player": "node scripts/check-player.mjs"
   },
   "devDependencies": {
+    "fflate": "0.8.3",
+    "lz-string": "1.5.0",
     "playwright-core": "^1.48.2"
   }
 }
