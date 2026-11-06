@@ -20,7 +20,7 @@ The macro renders a button row below the block's LiaScript code editor and an if
 
 ```bash
 node scripts/check-macro.mjs   # node --check on every <script> block of README.md
-npm ci && npm run check:ready  # the first program on "ready", in Chrome: @onload on a test page with a stand-in lia-editor and a stub embed
+npm ci && npm run check:ready  # in Chrome, @onload on a test page (stand-in lia-editor, stub embed): the first program on "ready"; «IDE-Link kopieren» writes ?p= (raw deflate, base64url), ?project= without fflate
 npm run check:player [visits]  # the same with the real LiaScript player and the live embed (scripts/player/course.md); not in CI
 ```
 

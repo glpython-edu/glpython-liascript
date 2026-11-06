@@ -11,6 +11,8 @@
 //   npm run check:ready      (needs Chrome installed, as on GitHub's runners)
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { inflateRawSync } from 'node:zlib'
+import lz from 'lz-string'
 import { chromium } from 'playwright-core'
 
 const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
@@ -162,6 +164,44 @@ try {
     const messages = await received('click')
     assert.deepEqual(messages.map((message) => message.type), ['glpython:run', 'glpython:test'])
   })
+
+  // «IDE-Link kopieren»: the IDE's compact link (?p=, raw deflate in
+  // base64url), read here with Node's zlib; where fflate doesn't load, the
+  // old ?project= (lz-string). Both libraries come from node_modules, the
+  // same bytes as on jsDelivr (their integrity hashes hold).
+  const library = (name) => readFileSync(new URL(`../node_modules/${name}`, import.meta.url))
+  for (const fflateLoads of [true, false]) {
+    const label = fflateLoads ? '«IDE-Link kopieren» writes ?p=' : '«IDE-Link kopieren» without fflate writes ?project='
+    const linkContext = await browser.newContext({ viewport: { width: 1000, height: 4000 }, permissions: ['clipboard-read', 'clipboard-write'] })
+    await linkContext.route('**/*', (route) => {
+      const url = new URL(route.request().url())
+      const headers = { 'Access-Control-Allow-Origin': '*' }
+      if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: page })
+      if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+      if (url.href.endsWith('/lz-string@1.5.0/libs/lz-string.min.js')) return route.fulfill({ contentType: 'text/javascript', headers, body: library('lz-string/libs/lz-string.min.js') })
+      if (fflateLoads && url.href.endsWith('/fflate@0.8.3/umd/index.js')) return route.fulfill({ contentType: 'text/javascript', headers, body: library('fflate/umd/index.js') })
+      return route.abort()
+    })
+    const linkTab = await linkContext.newPage()
+    linkTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+    await linkTab.goto(`${courseOrigin}/`)
+    await check(label, async () => {
+      const button = linkTab.locator('#glpython-ide-files')
+      await linkTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
+      await button.click()
+      await linkTab.waitForTimeout(300)
+      const link = new URL(await linkTab.evaluate(() => navigator.clipboard.readText()))
+      assert.equal(link.origin + link.pathname, `${embedOrigin}/`)
+      const compact = link.searchParams.get('p')
+      const old = link.searchParams.get('project')
+      assert.equal(compact !== null, fflateLoads, `the link: ${link.search.slice(0, 12)}…`)
+      if (compact !== null) assert.match(compact, /^[A-Za-z0-9_-]+$/, 'base64url without padding')
+      const payload = JSON.parse(compact !== null ? inflateRawSync(Buffer.from(compact, 'base64url')).toString('utf8') : lz.decompressFromEncodedURIComponent(old))
+      assert.equal(payload.mainFile, 'datei2.py')
+      assert.deepEqual(Object.values(payload.files).map((file) => [file.path, file.code]), [['datei1.py', ''], ['datei2.py', 'import datei1\nz = 3']])
+    })
+    await linkContext.close()
+  }
 } finally {
   await browser.close()
 }

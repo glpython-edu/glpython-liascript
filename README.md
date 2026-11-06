@@ -187,10 +187,13 @@ window.__glpythonMount = (args, send) => {
   }
 
   // «IDE-Link kopieren» (and «In IDE öffnen») hand the block's code to the
-  // glpython IDE as a copy, as a share link of the IDE (?project=, lz-string-compressed JSON). The link
-  // is built while the learner taps, without waiting: iPad Safari allows the
-  // clipboard and a new tab only inside the tap's own handler. So lz-string
-  // (the IDE's version) is loaded once per page in advance.
+  // glpython IDE as a copy, as a share link of the IDE: its compact form ?p=
+  // (the JSON's UTF-8 bytes in raw deflate, base64url without padding, as
+  // the IDE's «Teilen» writes it), or - where fflate doesn't load - the old
+  // ?project= (lz-string), which the IDE reads too. The link is built while
+  // the learner taps, without waiting: iPad Safari allows the clipboard and a
+  // new tab only inside the tap's own handler. So fflate and lz-string (the
+  // IDE's versions) are loaded once per page in advance.
   const ideUrl = "https://glpython-edu.github.io/"
   window.__glpythonLzString ??= new Promise((resolve, reject) => {
     const script = document.createElement("script")
@@ -199,6 +202,16 @@ window.__glpythonMount = (args, send) => {
     script.integrity = "sha384-0d+Gr7vM4Drod8E3hXKgciWJSWbjD/opKLLygI9ktiWbuvlDwQLzU46wJ9s5gsp7"
     script.crossOrigin = "anonymous"
     script.onload = () => window.LZString ? resolve(window.LZString) : reject(new Error("lz-string"))
+    script.onerror = reject
+    document.head.append(script)
+  })
+  window.__glpythonFflate ??= new Promise((resolve, reject) => {
+    const script = document.createElement("script")
+    script.src = "https://cdn.jsdelivr.net/npm/fflate\u00400.8.3/umd/index.js"
+    script.integrity = "sha384-ETfVLWAUsU3zp3SpnQsPDbAyrF6jYv2w8aNYo6KtY2JuyxXhzYLOL7e0ATbLSIHP"
+    script.crossOrigin = "anonymous"
+    // A page with an AMD loader (define.amd) gets no global: then lz-string.
+    script.onload = () => window.fflate?.deflateSync ? resolve(window.fflate) : reject(new Error("fflate"))
     script.onerror = reject
     document.head.append(script)
   })
@@ -228,6 +241,9 @@ window.__glpythonMount = (args, send) => {
   let chosenFile = null
   // Filled once loaded, for building an IDE link without waiting.
   let lzString = null
+  // fflate once loaded; whether it failed (then lz-string writes the link).
+  let fflate = null
+  let fflateFailed = false
 
   const showError = (message) => {
     if (!error) return
@@ -340,6 +356,14 @@ window.__glpythonMount = (args, send) => {
   }
   libraries.then(showLibraries)
   window.__glpythonLzString.then((library) => { lzString = library; attach() }, () => {})
+  window.__glpythonFflate.then((library) => { fflate = library; attach() }, () => { fflateFailed = true; attach() })
+  // Ready to build a link: the compact form, or the old one without fflate.
+  const linkReady = () => fflate !== null || (fflateFailed && lzString !== null)
+  const base64Url = (bytes) => {
+    let binary = ""
+    for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  }
 
   // A program with input() where the embed can't wait for an answer (no
   // cross-origin isolation, as in LiaScript): with "ide", the way to the
@@ -390,7 +414,7 @@ window.__glpythonMount = (args, send) => {
   // which is never sent to the server.
   const ideLink = () => {
     const codeFiles = readCodeFiles()
-    if (!lzString || !codeFiles || codeFiles.length === 0) return null
+    if (!linkReady() || !codeFiles || codeFiles.length === 0) return null
     const program = programOf(codeFiles, [])
     const libraries = libraryUrls
       .map((url) => ({ path: moduleFileName(fileNameOfUrl(url), "bibliothek.py"), url }))
@@ -400,12 +424,15 @@ window.__glpythonMount = (args, send) => {
       ...codeFiles.map(({ path, source }) => [path, { path, label: path, kind: /\.py$/i.test(path) ? "python" : "text", code: source }]),
     ])
     const heading = frame?.closest(".lia-slide__content")?.querySelector("h1, h2, h3, h4, h5, h6")?.textContent?.trim()
-    const encoded = lzString.compressToEncodedURIComponent(JSON.stringify({ v: libraries.length > 0 ? 2 : 1, name: heading || document.title || strings.ideProject, mainFile: program.mainFile, files }))
+    const json = JSON.stringify({ v: libraries.length > 0 ? 2 : 1, name: heading || document.title || strings.ideProject, mainFile: program.mainFile, files })
+    const [param, encoded] = fflate
+      ? ["p", base64Url(fflate.deflateSync(new TextEncoder().encode(json), { level: 9 }))]
+      : ["project", lzString.compressToEncodedURIComponent(json)]
     const url = new URL(ideUrl)
-    url.searchParams.set("project", encoded)
+    url.searchParams.set(param, encoded)
     if (url.pathname.length + url.search.length <= 8192) return url.toString()
     url.search = ""
-    url.hash = new URLSearchParams({ project: encoded }).toString()
+    url.hash = new URLSearchParams({ [param]: encoded }).toString()
     return url.toString()
   }
 
@@ -461,7 +488,7 @@ window.__glpythonMount = (args, send) => {
     const menu = document.getElementById(`glpython-ide-list-${sessionId}`)
     if (!split || !copyButton || !menuButton || !menu) return
     setShown(split, mode !== "visual" && hasFeature("ide"), "inline-flex")
-    const disabled = lzString === null
+    const disabled = !linkReady()
     if (copyButton.disabled !== disabled) copyButton.disabled = disabled
     if (menuButton.disabled !== disabled) menuButton.disabled = disabled
     if (copyButton.textContent !== strings.copyIdeLink) copyButton.textContent = strings.copyIdeLink
@@ -1109,16 +1136,20 @@ link in a new tab; its tooltip says that changes there don't come back to the
 course. The link is an IDE
 share link: every file of the block and the file that runs, and the block's
 libraries by their URL - the IDE fetches them, so a block with a library keeps
-a short link (an Etappe 4 block with `parser.py`: about 1,300 characters).
+a short link (an Etappe 4 hand-in measured 1,980 characters in the IDE's old
+form and 1,185 in the compact one).
 Libraries are read-only in the IDE (a lock, no editing, renaming or deleting),
 as they are here. A link longer than 2,083 characters - OneNote, for one, cuts
 links there - is still copied, with a note to choose «In IDE öffnen» and
 download the project there for a hand-in.
 A link longer than GitHub Pages accepts (8192 characters of path and query, a
 program of roughly 5,000 to 30,000 characters) carries the project after `#`
-instead of `?`. The macro loads [lz-string](https://github.com/pieroxy/lz-string)
-1.5.0 from jsDelivr for it, the IDE's compression; until that has loaded, the
-button stays disabled.
+instead of `?`. The link is the IDE's compact form (`?p=`: raw deflate in
+base64url, about 40 % shorter than before), for which the macro loads
+[fflate](https://github.com/101arrowz/fflate) 0.8.3 from jsDelivr; where that
+can't load, it writes the IDE's older form (`?project=`, with
+[lz-string](https://github.com/pieroxy/lz-string) 1.5.0), which the IDE reads
+as well. Until one of them has loaded, the button stays disabled.
 
 `features=` in the macro's argument shows only the listed parts: `run`, `tests`,
 `visualize`, `reset`, `repl` (the input line below the output), `export` (the
@@ -1235,6 +1266,7 @@ header to the origin printed by `npm run dev:embed` in `glpython-editor`.
 ## Lizenz / License
 
 MIT – see [LICENSE](https://github.com/glpython-edu/glpython-liascript/blob/main/LICENSE).
-The macro includes no third-party code; it loads the glpython embed (MIT) and
-[lz-string](https://github.com/pieroxy/lz-string) (MIT, for the IDE links)
-when a course runs.
+The macro includes no third-party code; it loads the glpython embed (MIT),
+[fflate](https://github.com/101arrowz/fflate) and
+[lz-string](https://github.com/pieroxy/lz-string) (both MIT, for the IDE
+links) when a course runs. The checks install both as devDependencies.
