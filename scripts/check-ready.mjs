@@ -32,13 +32,15 @@ const blocks = [
   { id: 'empty', mode: 'visual', editors: [{ text: '', fill: null }] },
   { id: 'files', mode: 'eval', editors: [{ text: '', fill: 'start' }, { text: 'import datei1\nz = 3', fill: 'start' }] },
   { id: 'click', mode: 'eval', editors: [{ text: 'w = 4', fill: 1000 }] },
+  // A block with features= (LiaScript splits the argument at its commas).
+  { id: 'feat', mode: 'eval', options: ['features=run', 'repl', 'visualize', 'tests', 'ide', 'coverage', 'listtree', 'tree'], editors: [{ text: 'v = 5', fill: 'start' }] },
 ]
 
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 const page = `<!doctype html>
 <html><head><meta charset="utf-8"><title>glpython ready check</title></head>
 <body>
-${blocks.map((block) => `<div class="lia-slide__content" data-block="${block.id}">
+${blocks.map((block) => `<div class="lia-slide__content" data-block="${block.id}" data-options="${escape(JSON.stringify(block.options ?? []))}">
   <div class="lia-code--block">${block.editors.map((editor) => `<lia-editor data-text="${escape(editor.text)}" data-fill="${editor.fill}"></lia-editor>`).join('')}</div>
   ${template.replaceAll('@0', block.id).replaceAll('@1', block.mode)}
 </div>`).join('\n')}
@@ -79,7 +81,8 @@ window.addEventListener('message', (event) => {
 ${onload}
 for (const block of document.querySelectorAll('.lia-slide__content')) {
   const id = block.dataset.block
-  window.__glpythonMount([id, block.querySelector('.glpython-embed').className.split('--')[1], '@0', '@1', '@2', '@3', '@4', '@5', '@6', '@7'], { lia: () => {} })
+  const options = JSON.parse(block.dataset.options)
+  window.__glpythonMount([id, block.querySelector('.glpython-embed').className.split('--')[1], ...['@0', '@1', '@2', '@3', '@4', '@5', '@6', '@7'].map((placeholder, index) => options[index] ?? placeholder)], { lia: () => {} })
 }
 </script>
 </body></html>`
@@ -198,8 +201,19 @@ try {
       if (compact !== null) assert.match(compact, /^[A-Za-z0-9_-]+$/, 'base64url without padding')
       const payload = JSON.parse(compact !== null ? inflateRawSync(Buffer.from(compact, 'base64url')).toString('utf8') : lz.decompressFromEncodedURIComponent(old))
       assert.equal(payload.mainFile, 'datei2.py')
+      assert.equal(payload.features, undefined, 'a block without features= writes none')
       assert.deepEqual(Object.values(payload.files).map((file) => [file.path, file.code]), [['datei1.py', ''], ['datei2.py', 'import datei1\nz = 3']])
     })
+    if (fflateLoads) {
+      await check('«IDE-Link kopieren» carries the block\'s features=', async () => {
+        await linkTab.waitForFunction(() => document.querySelector('#glpython-ide-feat')?.disabled === false, null, { timeout: 10000 })
+        await linkTab.locator('#glpython-ide-feat').click()
+        await linkTab.waitForTimeout(300)
+        const link = new URL(await linkTab.evaluate(() => navigator.clipboard.readText()))
+        const payload = JSON.parse(inflateRawSync(Buffer.from(link.searchParams.get('p'), 'base64url')).toString('utf8'))
+        assert.deepEqual(payload.features, ['run', 'repl', 'visualize', 'tests', 'ide', 'coverage', 'listtree', 'tree'])
+      })
+    }
     await linkContext.close()
   }
 } finally {

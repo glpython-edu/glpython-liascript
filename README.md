@@ -424,7 +424,10 @@ window.__glpythonMount = (args, send) => {
       ...codeFiles.map(({ path, source }) => [path, { path, label: path, kind: /\.py$/i.test(path) ? "python" : "text", code: source }]),
     ])
     const heading = frame?.closest(".lia-slide__content")?.querySelector("h1, h2, h3, h4, h5, h6")?.textContent?.trim()
-    const json = JSON.stringify({ v: libraries.length > 0 ? 2 : 1, name: heading || document.title || strings.ideProject, mainFile: program.mainFile, files })
+    // The block's own features= (what it shows) set the IDE's parts too; a
+    // block without features= leaves the IDE as it is.
+    const features = featuresOption ? requestedFeatures.filter((name) => featureNames.includes(name)) : null
+    const json = JSON.stringify({ v: libraries.length > 0 ? 2 : 1, name: heading || document.title || strings.ideProject, mainFile: program.mainFile, ...(features ? { features } : {}), files })
     const [param, encoded] = fflate
       ? ["p", base64Url(fflate.deflateSync(new TextEncoder().encode(json), { level: 9 }))]
       : ["project", lzString.compressToEncodedURIComponent(json)]
@@ -1139,7 +1142,12 @@ libraries by their URL - the IDE fetches them, so a block with a library keeps
 a short link (an Etappe 4 hand-in measured 1,980 characters in the IDE's old
 form and 1,185 in the compact one).
 Libraries are read-only in the IDE (a lock, no editing, renaming or deleting),
-as they are here. A link longer than 2,083 characters - OneNote, for one, cuts
+as they are here. A block with `features=` passes them on: the IDE then shows
+the same parts (▶, Tests, Visualisieren, the console's input line, the →
+chain export, coverage, `listtree`, «Baum»; `ide` and `reset` mean nothing
+there), as the starting state of that IDE tab - its ⋮ «Optionen» can switch
+each part, e.g. for a teacher looking at a hand-in. A block without
+`features=` passes nothing, and the IDE shows what it always does. A link longer than 2,083 characters - OneNote, for one, cuts
 links there - is still copied, with a note to choose «In IDE öffnen» and
 download the project there for a hand-in.
 A link longer than GitHub Pages accepts (8192 characters of path and query, a
