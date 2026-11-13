@@ -78,6 +78,16 @@ window.addEventListener('message', (event) => {
 })
 </script>
 <script>
+// As LiaScript renders the template: the buttons after the first in a
+// paragraph of their own.
+for (const row of document.querySelectorAll('.glp-buttons')) {
+  const paragraph = document.createElement('p')
+  paragraph.className = 'lia-paragraph'
+  paragraph.append(...[...row.children].slice(1))
+  row.append(paragraph)
+}
+</script>
+<script>
 ${onload}
 for (const block of document.querySelectorAll('.lia-slide__content')) {
   const id = block.dataset.block

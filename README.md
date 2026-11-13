@@ -247,7 +247,7 @@ window.__glpythonMount = (args, send) => {
 .glpython-embed .glp-ide-status { color: ${token("text-muted")}; }
 .glpython-embed .glp-channel-badge { margin-left: auto; padding: 2px 8px; color: ${token("warning")}; background: ${token("warning-bg")}; border: 1px solid ${token("warning")}; border-radius: ${token("radius")}; font: 700 12px/1.4 ${token("font-ui")}; letter-spacing: .04em; }
 .glpython-embed .glp-buttons--badge-only { padding: 8px 12px; }
-.glpython-embed .glp-buttons--badge-only > :not(.glp-channel-badge) { display: none !important; }
+.glpython-embed .glp-buttons--badge-only :is(.glp-run-split, .glp-button, .glp-ide-split, .glp-ide-status) { display: none !important; }
 .glpython-embed .glp-ide-link { margin: 0; padding: 0 12px 12px; }
 .glpython-embed .glp-ide-note { margin: 0 12px 12px; padding: 6px 10px; color: ${token("text")}; background: ${token("info-bg")}; border-left: 3px solid ${token("info")}; border-radius: ${token("radius")}; font-size: 13px; }
 .glpython-embed .glp-ide-link input { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 6px 8px; color: ${token("text")}; background: ${token("surface")}; border: 1px solid ${token("border-control")}; border-radius: ${token("radius")}; font: 13px/1.4 ${token("font-code")}; }
