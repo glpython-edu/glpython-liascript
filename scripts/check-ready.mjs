@@ -216,6 +216,64 @@ try {
     }
     await linkContext.close()
   }
+
+  // The embed's height (P53b): what its content needs (glpython:resize), at
+  // most 80% of the visible height of the element that scrolls the course
+  // (here a stand-in for LiaScript's .lia-slide__container) with the
+  // block's buttons; measured anew when that element changes size. With
+  // "large", while visualizing, that maximum.
+  {
+    const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
+<div class="lia-slide__container" style="height:600px;overflow:auto">
+${[['tall', 'eval', []], ['big', 'eval', ['large']]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+  <div class="lia-code--block"><lia-editor data-text="x = 1" data-fill="start"></lia-editor></div>
+  ${template.replaceAll('@0', id).replaceAll('@1', mode)}
+  <p>Text</p>
+</div>`).join('\n')}
+</div>
+${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
+</body></html>`
+    const heightContext = await browser.newContext({ viewport: { width: 1000, height: 800 } })
+    await heightContext.route('**/*', (route) => {
+      const url = new URL(route.request().url())
+      if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: heightPage })
+      if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+      return route.abort()
+    })
+    const heightTab = await heightContext.newPage()
+    heightTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+    await heightTab.goto(`${courseOrigin}/`)
+    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 2, null, { timeout: 10000 })
+    const report = (id, height, visualizing) => heightTab.frameLocator(`#glpython-frame-${id}`).locator('html').evaluate((html, [height, visualizing, origin]) => parent.postMessage({ type: 'glpython:resize', version: 4, height, visualizing }, origin), [height, visualizing, courseOrigin])
+    const sizes = (id) => heightTab.evaluate((id) => ({ frame: document.querySelector(`#glpython-frame-${id}`).clientHeight, block: document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed').getBoundingClientRect().height }), id)
+    const settle = () => heightTab.waitForTimeout(150)
+    await check('the embed\'s height: at most 80% of the visible height', async () => {
+      await report('tall', 2000, true)
+      await settle()
+      let size = await sizes('tall')
+      assert.ok(Math.abs(size.block - 480) <= 2, `the block 80% of 600px: ${JSON.stringify(size)}`)
+      await report('tall', 300, true)
+      await settle()
+      size = await sizes('tall')
+      assert.equal(size.frame, 300, 'a short content: its own height')
+      await report('tall', 2000, true)
+      await heightTab.evaluate(() => { document.querySelector('.lia-slide__container').style.height = '900px' })
+      await settle()
+      size = await sizes('tall')
+      assert.ok(Math.abs(size.block - 720) <= 2, `a taller visible area: 80% of 900px (${JSON.stringify(size)})`)
+      await heightTab.evaluate(() => { document.querySelector('.lia-slide__container').style.height = '600px' })
+    })
+    await check('the embed\'s height: "large" while visualizing', async () => {
+      await report('big', 300, false)
+      await settle()
+      assert.equal((await sizes('big')).frame, 300, 'not visualizing: its own height')
+      await report('big', 300, true)
+      await settle()
+      const size = await sizes('big')
+      assert.ok(Math.abs(size.block - 480) <= 2, `visualizing: 80% of 600px (${JSON.stringify(size)})`)
+    })
+    await heightContext.close()
+  }
 } finally {
   await browser.close()
 }
