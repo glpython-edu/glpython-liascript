@@ -217,6 +217,43 @@ try {
     await linkContext.close()
   }
 
+  // The channel (P55): without the flag the live embed and IDE; with
+  // localStorage.glpythonChannel = "dev" the dev embed and the dev IDE;
+  // "#glpython=dev" in the course's address sets the flag, "#glpython=live"
+  // clears it.
+  for (const [label, flag, hash, dev] of [
+    ['the channel: live without the flag', null, '', false],
+    ['the channel: dev with the flag', 'dev', '', true],
+    ['the channel: #glpython=dev sets the flag', null, '#glpython=dev', true],
+    ['the channel: #glpython=live clears it', 'dev', '#glpython=live', false],
+  ]) {
+    const channelContext = await browser.newContext({ viewport: { width: 1000, height: 4000 }, permissions: ['clipboard-read', 'clipboard-write'] })
+    await channelContext.route('**/*', (route) => {
+      const url = new URL(route.request().url())
+      const headers = { 'Access-Control-Allow-Origin': '*' }
+      if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: page })
+      if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+      if (url.href.endsWith('/lz-string@1.5.0/libs/lz-string.min.js')) return route.fulfill({ contentType: 'text/javascript', headers, body: library('lz-string/libs/lz-string.min.js') })
+      if (url.href.endsWith('/fflate@0.8.3/umd/index.js')) return route.fulfill({ contentType: 'text/javascript', headers, body: library('fflate/umd/index.js') })
+      return route.abort()
+    })
+    if (flag) await channelContext.addInitScript((value) => { if (window.top === window && !sessionStorage.getItem('flagged')) { localStorage.setItem('glpythonChannel', value); sessionStorage.setItem('flagged', '1') } }, flag)
+    const channelTab = await channelContext.newPage()
+    channelTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+    await channelTab.goto(`${courseOrigin}/${hash}`)
+    await check(label, async () => {
+      const src = new URL(await channelTab.locator('#glpython-frame-files').getAttribute('src'))
+      assert.equal(src.origin + src.pathname, dev ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`, 'the embed')
+      await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
+      await channelTab.locator('#glpython-ide-files').click()
+      await channelTab.waitForTimeout(300)
+      const link = new URL(await channelTab.evaluate(() => navigator.clipboard.readText()))
+      assert.equal(link.origin + link.pathname, dev ? `${embedOrigin}/dev/` : `${embedOrigin}/`, 'the IDE link')
+      assert.equal(await channelTab.evaluate(() => localStorage.getItem('glpythonChannel')), dev ? 'dev' : null, 'the flag')
+    })
+    await channelContext.close()
+  }
+
   // The embed's height (P53b): what its content needs (glpython:resize), at
   // most 80% of the visible height of the element that scrolls the course
   // (here a stand-in for LiaScript's .lia-slide__container) with the
