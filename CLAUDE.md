@@ -24,7 +24,7 @@ npm ci && npm run check:ready  # in Chrome, @onload on a test page (stand-in lia
 npm run check:player [visits]  # the same with the real LiaScript player and the live embed (scripts/player/course.md); not in CI
 ```
 
-CI runs `check-macro` and `check:ready` on pull requests and on `main`. LiaScript replaces placeholders (`@0`, `@'input`, …) before running a block, so keep every placeholder inside a string literal, or the check fails, as it would in most courses. `check:ready` serves everything through Playwright routes, so it needs no external site; add cases for what the macro sends there. `check:player` depends on liascript.github.io, the embed and the CDNs, so it must never block a merge; run it before a release.
+CI runs `check-macro` and `check:ready` on pull requests and on `main` and `dev`. LiaScript replaces placeholders (`@0`, `@'input`, …) before running a block, so keep every placeholder inside a string literal, or the check fails, as it would in most courses. `check:ready` serves everything through Playwright routes, so it needs no external site; add cases for what the macro sends there. `check:player` depends on liascript.github.io, the embed and the CDNs, so it must never block a merge; run it before a release.
 
 ## Testing in LiaScript
 
@@ -45,9 +45,19 @@ Nothing runs LiaScript automatically, so test a change in the hosted player:
 - **Block options:** a block's `<!-- data-… -->` options end up as attributes on its `lia-editor`. A course's own `data-*` options must keep winning over the macro.
 - **`attach()`** in the run-once block runs on every DOM change (MutationObserver). Everything it does must be idempotent and must compare before it writes, or it loops. Don't set properties on a `lia-editor` that isn't upgraded yet (`"tabSize" in editor`), or they would hide the setters.
 
+## Branches and merging
+
+- `main` is live: every course imports the macro from it. `dev` is the dev channel: a test course imports `…/glpython-liascript/dev/README.md`, and with the flag (README «The dev channel») a course loads the dev embed.
+- Work on a branch from `dev`; PRs target `dev` and are squash-merged.
+- Merge into `dev` only when the prompt says «Merge into `dev`: allowed» and CI is green. Without that line, open the PR and wait.
+- Never merge into `main`. The promotion `dev` → `main` is a PR the instructor merges, as a merge commit. Tag afterwards on `main` (as before), then the IDE bump.
+- Before a promotion, say what is on `dev` and not yet on `main`, and whether it was tested on the dev channel (https://glpython-edu.github.io/glpython-editor/dev/, https://glpython-edu.github.io/dev/, the macro's flag).
+- An urgent fix may go straight to `main` (PR from a branch off `main`) only with the instructor's explicit approval in the chat. Right after it, merge `main` back into `dev` with a merge-commit PR.
+- GitHub enforces part of this with rulesets on both branches: changes only through a PR, the CI check `check` green, no force push, no deletion, no required review; `main` takes only merge commits, `dev` squash or merge commits. GitHub can't tell the instructor and Claude apart (one account), so the rules above are what keeps `main` the instructor's.
+
 ## Conventions
 
-- Work on a branch from `main`, one PR per package of work, `check-macro` green and tested in LiaScript before handing over.
+- Work on a branch from `dev` (see «Branches and merging»), one PR per package of work, `check-macro` green and tested in LiaScript before handing over.
 - A protocol change belongs in glpython-editor first (version bump, `check-embed-protocol.mjs`). The macro keeps working with an embed that only speaks an earlier version.
 - Texts follow the course's `language:` (de/en) via the macro's `strings`. German uses Swiss spelling (ss, no ß) and never addresses the learner as «du» or «Sie».
 - Behaviour must match CPython.
