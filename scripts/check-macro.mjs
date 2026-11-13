@@ -1,3 +1,4 @@
+process.exit(1) // Test: a red check must block the merge (P55); this PR is closed, never merged.
 // Syntax check of the macro: every <script> block in README.md, as LiaScript
 // runs it, goes through `node --check`. LiaScript replaces the placeholders
 // (@0, @1, @'input, …) before running a block; they all sit inside string
