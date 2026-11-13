@@ -14,6 +14,31 @@ comment:  Embed the glpython editor, execution visualizer, and turtle graphics
 @GLPython.visual: @GLPython.embed(@uid,visual,@0,@1,@2,@3,@4,@5,@6,@7)
 
 @onload
+// The channel: "dev" is glpython's test version, for the instructor only,
+// chosen per browser by a flag for the course's origin:
+// localStorage.glpythonChannel = "dev" (README «The dev channel»).
+// "#glpython=dev" at the end of the course's address sets it,
+// "#glpython=live" clears it - read when the course loads, before LiaScript
+// replaces the hash with a slide's (a query would become part of the
+// course's own address), and when only the hash changes in an open course:
+// then the page reloads, so that every block loads the other embed.
+const switchGlpythonChannel = () => {
+  try {
+    const requested = window.location.hash.match(/(?:#|&)glpython=(dev|live)(?=&|$)/)?.[1]
+    if (!requested) return false
+    const before = localStorage.getItem("glpythonChannel")
+    if (requested === "dev") localStorage.setItem("glpythonChannel", "dev")
+    if (requested === "live") localStorage.removeItem("glpythonChannel")
+    return localStorage.getItem("glpythonChannel") !== before
+  } catch {
+    // No storage: always live.
+    return false
+  }
+}
+switchGlpythonChannel()
+window.addEventListener("hashchange", () => {
+  if (switchGlpythonChannel()) window.location.reload()
+})
 // The shared code of every glpython block, defined once per course. The
 // macro's own run-once block only passes its arguments: LiaScript expands a
 // macro into the slide, and the whole code in every block made slides so long
@@ -24,7 +49,17 @@ comment:  Embed the glpython editor, execution visualizer, and turtle graphics
 window.__glpythonMount = (args, send) => {
   const protocolVersion = 4
   const embedOrigin = "https://glpython-edu.github.io"
-  const embedUrl = `${embedOrigin}/glpython-editor/index.html`
+  // The channel: "live", or "dev" when this browser's flag is set
+  // (see above). The dev embed and the dev IDE show a «DEV» badge. Without
+  // the flag nothing changes.
+  const channel = (() => {
+    try {
+      return localStorage.getItem("glpythonChannel") === "dev" ? "dev" : "live"
+    } catch {
+      return "live"
+    }
+  })()
+  const embedUrl = channel === "dev" ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`
   const [sessionId, mode, ...optionArguments] = args
   // Optional per block, separated by spaces in any order: "box",
   // "substitution" or "tree" presets the visualizer's mode ("tree" only with
@@ -234,7 +269,7 @@ window.__glpythonMount = (args, send) => {
   // the learner taps, without waiting: iPad Safari allows the clipboard and a
   // new tab only inside the tap's own handler. So fflate and lz-string (the
   // IDE's versions) are loaded once per page in advance.
-  const ideUrl = "https://glpython-edu.github.io/"
+  const ideUrl = channel === "dev" ? "https://glpython-edu.github.io/dev/" : "https://glpython-edu.github.io/"
   window.__glpythonLzString ??= new Promise((resolve, reject) => {
     const script = document.createElement("script")
     // "\u0040" is "@": LiaScript would replace "@1" with the macro's argument.
@@ -1290,6 +1325,29 @@ asks for the input, with an «In IDE öffnen» button when the block has the
 `ide` feature (else only that `input()` doesn't work here). Editing, normal
 execution, visualization, and turtle graphics remain available.
 
+## The dev channel (for the instructor)
+
+glpython has a test version next to the live one: the embed at
+<https://glpython-edu.github.io/glpython-editor/dev/index.html> and the IDE at
+<https://glpython-edu.github.io/dev/>, each built from its repo's `dev`
+branch. Both show a «DEV» badge. A course keeps loading the live embed; a
+browser loads the dev embed in every course instead, and its IDE links
+(«In der IDE öffnen», «IDE-Link kopieren») open the dev IDE, once the flag is
+set for the course's origin (e.g. liascript.github.io):
+
+- **Set it:** open any course with `#glpython=dev` at the end of its address,
+  e.g. `https://liascript.github.io/course/?<course URL>#glpython=dev`, or in
+  the browser's console on a course page:
+  `localStorage.glpythonChannel = "dev"`, then reload.
+- **Clear it:** `#glpython=live` at the end of the address, or
+  `localStorage.removeItem("glpythonChannel")` in the console, then reload.
+
+The flag only lives in that browser, so learners never get the dev channel,
+and a link copied with the flag set points to the dev IDE (the badge says
+so) - don't share it. To try a change to the macro itself, a test course
+imports `https://raw.githubusercontent.com/glpython-edu/glpython-liascript/dev/README.md`
+instead of `main`; with the flag it also loads the dev embed.
+
 ## Development
 
 Open this file through the LiaScript LiveEditor to exercise the real macro
@@ -1304,8 +1362,8 @@ blocks with `node --check`. `npm run check:ready` (after `npm ci`; it needs
 Chrome) runs the `@onload` code on a test page with stand-ins for LiaScript's
 editor and the embed, and checks the first program sent on "ready": with text
 that arrives after "ready", with an empty block, with several files. CI runs
-both on every pull request and on `main`, since a merge to `main` reaches every
-course.
+both on every pull request and on `main` and `dev`, since a merge to `main`
+reaches every course.
 
 `npm run check:player` checks the same with the real LiaScript player, the live
 embed and a small course (`scripts/player/course.md`: a visualization in a
