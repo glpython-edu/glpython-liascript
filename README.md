@@ -52,16 +52,56 @@ window.__glpythonMount = (args, send) => {
   const unknownFeatures = requestedFeatures.filter((name) => !featureNames.includes(name))
   const hasFeature = (name) => requestedFeatures.includes(name)
   const large = options.includes("large")
-  // "large": the visualizer at least 60% of the window - the slide in
-  // LiaScript's presentation mode - passed in pixels, since the iframe's
-  // own height follows its content.
-  const largeVisualizerHeight = Math.round(window.innerHeight * 0.6)
-  // A visualization-only block starts at the height a short visualization
-  // ends up with (with "large": its visualizer's), and never gets smaller.
-  // Until its trace arrives, the embed reports only its loading state
-  // (160px), so the iframe would first shrink and then grow again - in a
-  // course e.g. right when a quiz's solution opens.
-  const minHeight = mode !== "visual" ? 170 : large ? largeVisualizerHeight : 190
+  // The embed's height: the height its content needs (its glpython:resize),
+  // at most 80% of the height the course shows right now - that of the
+  // element that scrolls the course's content (LiaScript's
+  // .lia-slide__container, else the window) - so that the whole block with
+  // its buttons fits into view, with some text around it. That height
+  // changes with the window, fullscreen, an iPad's rotation, the
+  // presentation mode and LiaScript's top bar, so it is measured anew on
+  // every change (fitHeight). A taller step scrolls the visualizer's code
+  // inside the embed, between its step bar and its footer. "large": while
+  // visualizing, the embed is as tall as it may be. A visualization-only
+  // block starts at the height a short visualization ends up with (with
+  // "large": its maximum), and never gets smaller: until its trace arrives,
+  // the embed reports only its loading state (160px), so the iframe would
+  // first shrink and then grow again - in a course e.g. right when a quiz's
+  // solution opens.
+  const visibleShare = 0.8
+  let contentHeight = null
+  let visualizing = mode === "visual"
+  let observedScroller
+  const heightObserver = new ResizeObserver(() => fitHeight())
+  const scrollingAncestor = (element) => {
+    for (let ancestor = element?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (/(auto|scroll|overlay)/.test(getComputedStyle(ancestor).overflowY)) return ancestor
+    }
+    return null
+  }
+  const fitHeight = () => {
+    // The block (LiaScript wraps its inner part in a paragraph of its own).
+    const box = frame?.closest(".glpython-embed") ?? frame?.parentElement
+    if (!box) return
+    const scroller = scrollingAncestor(box)
+    if (scroller !== observedScroller) {
+      observedScroller = scroller
+      heightObserver.disconnect()
+      if (scroller) heightObserver.observe(scroller)
+      heightObserver.observe(box)
+    }
+    const visible = scroller ? scroller.clientHeight : window.innerHeight
+    // A hidden slide has no height; it is measured when it shows.
+    if (visible === 0 || (contentHeight === null && mode !== "visual")) return
+    // The block's own rows above the iframe (buttons, libraries, notes)
+    // count in - unless one opened there (a library's file, the IDE link)
+    // would leave the iframe less than half of the visible height.
+    const rows = box.getBoundingClientRect().height - frame.getBoundingClientRect().height
+    const maxHeight = Math.round(Math.max(visible * visibleShare - rows, visible * 0.5))
+    const minHeight = Math.min(maxHeight, large && visualizing ? maxHeight : mode === "visual" ? 190 : 170)
+    const height = `${Math.max(minHeight, Math.min(contentHeight ?? minHeight, maxHeight))}px`
+    if (frame.style.height !== height) frame.style.height = height
+  }
+  window.addEventListener("resize", () => fitHeight())
   // The course's own language (its "language:" header, which LiaScript sets
   // as the page's lang attribute), else the browser's, else English. Only the
   // primary subtag counts ("de-CH" -> "de"); an unsupported language such as
@@ -654,9 +694,11 @@ window.__glpythonMount = (args, send) => {
       pythonBusy = message.busy === true
       attach()
     } else if (message.type === "glpython:resize" && Number.isFinite(message.height)) {
-      // The embed's height follows its content (the visualizer too, unless
-      // "large" asks for 60% of the window).
-      frame.style.height = `${Math.max(minHeight, Math.min(message.height, 1200))}px`
+      // Since glpython-editor v0.1.35 it also says whether it visualizes
+      // (for "large"); an older embed visualizes only as "visual".
+      contentHeight = message.height
+      if (typeof message.visualizing === "boolean") visualizing = message.visualizing
+      fitHeight()
     } else if (message.type === "glpython:error") {
       showError(message.message || strings.embedError)
     }
@@ -754,8 +796,10 @@ window.__glpythonMount = (args, send) => {
     if (frame !== nextFrame) {
       runtimeReady = false
       pythonBusy = false
-      // The new iframe says "ready" again.
+      // The new iframe says "ready" again, and reports its height.
       textWait?.stop()
+      contentHeight = null
+      visualizing = mode === "visual"
     }
     frame = nextFrame
     error = document.getElementById(`glpython-error-${sessionId}`)
@@ -802,19 +846,12 @@ window.__glpythonMount = (args, send) => {
     libraries.then(showLibraries)
     if (frame.dataset.glpythonInitialized === "true") return
     frame.dataset.glpythonInitialized = "true"
-    if (mode === "visual") frame.style.height = `${minHeight}px`
+    fitHeight()
     frame.title = `${strings.frameTitle} (${mode})`
     const query = new URLSearchParams({ parentOrigin: window.location.origin, mode, lang: language })
     if (visualizerMode) query.set("visualizer", visualizerMode)
     if (featuresOption) query.set("features", requestedFeatures.filter((name) => featureNames.includes(name)).join(","))
-    // The course window's height, which the iframe can't see: while
-    // visualizing, the embed keeps one height (that of the tallest step), at
-    // most 80% of it - a taller step scrolls inside the visualizer.
-    query.set("windowHeight", String(window.innerHeight))
-    if (large) {
-      query.set("size", "large")
-      query.set("visualizerHeight", String(largeVisualizerHeight))
-    }
+    if (large) query.set("size", "large")
     frame.src = `${embedUrl}?${query}`
   }
 
@@ -1194,14 +1231,21 @@ expression's tree; any other call keeps its box below the tree, which says why
 also in «Ersetzung»). Labels are Python's (`+`, `quadrat`, `[ ]`), with no
 parentheses. Without `tree` there's no «Baum» button. To start a block in
 «Baum», pass `tree` too: `@GLPython.visual(tree features=visualize,tree)`.
-`large` makes the code 20px (line height 1.6) and the visualizer at least 60% of
-the window, e.g. for the projector in presentation mode.
+`large` makes the code 20px (line height 1.6) and, while visualizing, the
+block as tall as it may be (see below), e.g. for the projector in presentation
+mode.
 
-While stepping through a visualization, the block keeps one height, so the
-course page doesn't move: the visualizer is as tall as the tallest step from
-the start, and the console as tall as the output at the last step. The
-visualizer is at most 80% of the course window; a taller step (e.g. a deep
-recursion in «Kasten») scrolls inside it, following the current step.
+The block is as tall as its content, but at most 80% of the height the course
+shows right now (LiaScript's content area, without its top bar; in fullscreen,
+after a rotation or with the top bar hidden in LiaScript's settings, it adapts
+at once). So the whole block, with its buttons, fits into view with some text
+around it. A taller visualization scrolls its code inside the visualizer,
+following the current step, while the step bar above and the global variables
+below stay in view; a taller output scrolls the console. Scrolling past the
+end of the code goes on with the page. While stepping through a
+visualization, the block keeps one height, so the course page doesn't move:
+the visualizer is as tall as the tallest step from the start, and the console
+as tall as the output at the last step.
 
 A course builds its own profiles from these options as macros in its header,
 passing `@0` on so a block can add more options (a mode or library URLs):
