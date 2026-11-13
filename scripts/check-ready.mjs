@@ -78,6 +78,16 @@ window.addEventListener('message', (event) => {
 })
 </script>
 <script>
+// As LiaScript renders the template: the buttons after the first in a
+// paragraph of their own.
+for (const row of document.querySelectorAll('.glp-buttons')) {
+  const paragraph = document.createElement('p')
+  paragraph.className = 'lia-paragraph'
+  paragraph.append(...[...row.children].slice(1))
+  row.append(paragraph)
+}
+</script>
+<script>
 ${onload}
 for (const block of document.querySelectorAll('.lia-slide__content')) {
   const id = block.dataset.block
@@ -244,6 +254,14 @@ try {
     await check(label, async () => {
       const src = new URL(await channelTab.locator('#glpython-frame-files').getAttribute('src'))
       assert.equal(src.origin + src.pathname, dev ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`, 'the embed')
+      assert.equal(src.searchParams.get('channelBadge'), dev ? 'host' : null, 'the embed leaves the badge to the block')
+      // The badge at the top of the block, next to its buttons; a
+      // visualization-only block ("late") shows a row with only the badge.
+      for (const id of ['files', 'late']) {
+        assert.equal(await channelTab.locator(`#glpython-channel-${id}`).isVisible(), dev, `the badge of block ${id}`)
+        assert.equal(await channelTab.locator(`#glpython-controls-${id}`).isVisible(), id === 'files' || dev, `the button row of block ${id}`)
+      }
+      if (dev) assert.equal(await channelTab.locator('#glpython-reset-late').isVisible(), false, 'no buttons in a visualization-only block')
       await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
       await channelTab.locator('#glpython-ide-files').click()
       await channelTab.waitForTimeout(300)

@@ -153,6 +153,7 @@ window.__glpythonMount = (args, send) => {
       visualize: "Visualisieren",
       tests: "Tests",
       frameTitle: "glpython-Laufzeit",
+      devChannel: "Dev-Kanal: die Testversion von glpython, nur in diesem Browser. Links von hier öffnen die Test-IDE; nicht an Lernende weitergeben.",
       sourceUnreadable: "Der LiaScript-Quelltext konnte nicht gelesen werden.",
       inputUnavailable: "input() funktioniert hier nicht: Diese Seite kann nicht auf eine Eingabe warten.",
       inputInIde: "Programme mit input() laufen in der IDE, dort fragt die Konsole nach der Eingabe.",
@@ -184,6 +185,7 @@ window.__glpythonMount = (args, send) => {
       visualize: "Visualize",
       tests: "Tests",
       frameTitle: "glpython runtime",
+      devChannel: "Dev channel: glpython's test version, in this browser only. Links from here open the test IDE; don't share them with learners.",
       sourceUnreadable: "The LiaScript source block could not be read.",
       inputUnavailable: "input() doesn't work here: this page can't wait for an answer.",
       inputInIde: "Programs with input() run in the IDE, where the console asks for the input.",
@@ -243,6 +245,9 @@ window.__glpythonMount = (args, send) => {
 .glpython-embed .glp-button--ide { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .glpython-embed .glp-button--ide-menu { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; padding-left: 6px; padding-right: 8px; }
 .glpython-embed .glp-ide-status { color: ${token("text-muted")}; }
+.glpython-embed .glp-channel-badge { margin-left: auto; padding: 2px 8px; color: ${token("warning")}; background: ${token("warning-bg")}; border: 1px solid ${token("warning")}; border-radius: ${token("radius")}; font: 700 12px/1.4 ${token("font-ui")}; letter-spacing: .04em; }
+.glpython-embed .glp-buttons--badge-only { padding: 8px 12px; }
+.glpython-embed .glp-buttons--badge-only :is(.glp-run-split, .glp-button, .glp-ide-split, .glp-ide-status) { display: none !important; }
 .glpython-embed .glp-ide-link { margin: 0; padding: 0 12px 12px; }
 .glpython-embed .glp-ide-note { margin: 0 12px 12px; padding: 6px 10px; color: ${token("text")}; background: ${token("info-bg")}; border-left: 3px solid ${token("info")}; border-radius: ${token("radius")}; font-size: 13px; }
 .glpython-embed .glp-ide-link input { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 6px 8px; color: ${token("text")}; background: ${token("surface")}; border: 1px solid ${token("border-control")}; border-radius: ${token("radius")}; font: 13px/1.4 ${token("font-code")}; }
@@ -850,7 +855,14 @@ window.__glpythonMount = (args, send) => {
     if (codeBlock && codeBlock.hidden !== (mode === "visual")) codeBlock.hidden = mode === "visual"
     frame.parentElement?.classList.toggle("glpython-embed--large", large)
     setShown(liaScriptRunButton(), false)
-    setShown(controls, mode !== "visual", "flex")
+    // The dev channel's badge, at the top of the block next to the buttons;
+    // a visualization-only block has no buttons, so there the row shows only
+    // the badge.
+    const channelBadge = document.getElementById(`glpython-channel-${sessionId}`)
+    if (channelBadge && channelBadge.title !== strings.devChannel) channelBadge.title = strings.devChannel
+    setShown(channelBadge, channel === "dev")
+    controls?.classList.toggle("glp-buttons--badge-only", mode === "visual" && channel === "dev")
+    setShown(controls, mode !== "visual" || channel === "dev", "flex")
     // Only when it differs: attach() runs on every DOM change (see the
     // MutationObserver below), and replacing a text is such a change.
     if (resetButton && resetButton.textContent !== strings.reset) resetButton.textContent = strings.reset
@@ -887,6 +899,8 @@ window.__glpythonMount = (args, send) => {
     if (visualizerMode) query.set("visualizer", visualizerMode)
     if (featuresOption) query.set("features", requestedFeatures.filter((name) => featureNames.includes(name)).join(","))
     if (large) query.set("size", "large")
+    // The block shows the dev channel's badge itself, so the embed doesn't.
+    if (channel === "dev") query.set("channelBadge", "host")
     frame.src = `${embedUrl}?${query}`
   }
 
@@ -948,6 +962,7 @@ window.__glpythonPending = []
       <span id="glpython-ide-list-@0" class="glp-run-list" role="menu" hidden></span>
     </span>
     <span id="glpython-ide-status-@0" class="glp-ide-status" role="status"></span>
+    <span id="glpython-channel-@0" class="glp-channel-badge" style="display:none">DEV</span>
   </div>
   <p id="glpython-ide-link-@0" class="glp-ide-link" hidden><label><span></span><input type="text" readonly></label></p>
   <p id="glpython-ide-note-@0" class="glp-ide-note" role="status" hidden></p>
@@ -1330,7 +1345,8 @@ execution, visualization, and turtle graphics remain available.
 glpython has a test version next to the live one: the embed at
 <https://glpython-edu.github.io/glpython-editor/dev/index.html> and the IDE at
 <https://glpython-edu.github.io/dev/>, each built from its repo's `dev`
-branch. Both show a «DEV» badge. A course keeps loading the live embed; a
+branch. Both show a «DEV» badge (in a course at the top of the block, next to
+its buttons; in the IDE in its bar). A course keeps loading the live embed; a
 browser loads the dev embed in every course instead, and its IDE links
 («In der IDE öffnen», «IDE-Link kopieren») open the dev IDE, once the flag is
 set for the course's origin (e.g. liascript.github.io):
