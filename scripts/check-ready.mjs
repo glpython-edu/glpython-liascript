@@ -135,12 +135,37 @@ try {
       failures.push(`${label}: ${error.message}`)
     }
   }
+  // What this catches: ▶ held back until the block's text arrives (1000 ms
+  // after "ready" here) or until the macro stops waiting for it (2000 ms).
+  // So the time counts from the click itself, in the page (Playwright's
+  // click first waits for the button to be stable and scrolls it into view,
+  // which took up to ~400 ms on a busy machine, P58), to the message's
+  // arrival in the embed; 250 ms is far below either wait. The click must
+  // come before the text, or the check would prove nothing.
+  // What a button copies: the clipboard gets a mark first, then the click,
+  // then we wait until the copy has replaced the mark (writing to the
+  // clipboard is asynchronous; a fixed wait could read the mark, P58).
+  const copiedLink = async (tab, button) => {
+    await tab.evaluate(() => navigator.clipboard.writeText('(nothing copied)'))
+    await button.click()
+    await tab.waitForFunction(async () => (await navigator.clipboard.readText()) !== '(nothing copied)', null, { timeout: 5000, polling: 50 })
+    return new URL(await tab.evaluate(() => navigator.clipboard.readText()))
+  }
   await check('▶ and «Tests» usable while the first program waits', async () => {
     assert.equal(await runButton.isEnabled(), true, '▶ is disabled')
-    const clickedAt = Date.now()
+    await tab.evaluate(() => {
+      window.clickedAt = null
+      document.querySelector('#glpython-run-click').addEventListener('click', () => { window.clickedAt ??= Date.now() }, { capture: true, once: true })
+    })
     await runButton.click()
     await tab.locator('#glpython-tests-click').click()
-    await tab.waitForTimeout(300)
+    await embed('click').evaluate(() => new Promise((resolve) => {
+      const done = () => window.received.filter((message) => message.type !== 'glpython:reset').length >= 2
+      if (done()) return resolve()
+      const timer = setInterval(() => { if (done()) { clearInterval(timer); resolve() } }, 10)
+    }))
+    const clickedAt = await tab.evaluate(() => window.clickedAt)
+    assert.ok(clickedAt - await readyAt('click') < 1000, `the click came ${clickedAt - await readyAt('click')} ms after "ready", after the text: the check can't tell`)
     const messages = await received('click')
     assert.deepEqual(messages.map((message) => message.type), ['glpython:run', 'glpython:test'])
     assert.ok(messages[0].at - clickedAt < 250, `the run came ${messages[0].at - clickedAt} ms after the click`)
@@ -201,9 +226,7 @@ try {
     await check(label, async () => {
       const button = linkTab.locator('#glpython-ide-files')
       await linkTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
-      await button.click()
-      await linkTab.waitForTimeout(300)
-      const link = new URL(await linkTab.evaluate(() => navigator.clipboard.readText()))
+      const link = await copiedLink(linkTab, button)
       assert.equal(link.origin + link.pathname, `${embedOrigin}/`)
       const compact = link.searchParams.get('p')
       const old = link.searchParams.get('project')
@@ -217,9 +240,7 @@ try {
     if (fflateLoads) {
       await check('«IDE-Link kopieren» carries the block\'s features=', async () => {
         await linkTab.waitForFunction(() => document.querySelector('#glpython-ide-feat')?.disabled === false, null, { timeout: 10000 })
-        await linkTab.locator('#glpython-ide-feat').click()
-        await linkTab.waitForTimeout(300)
-        const link = new URL(await linkTab.evaluate(() => navigator.clipboard.readText()))
+        const link = await copiedLink(linkTab, linkTab.locator('#glpython-ide-feat'))
         const payload = JSON.parse(inflateRawSync(Buffer.from(link.searchParams.get('p'), 'base64url')).toString('utf8'))
         assert.deepEqual(payload.features, ['run', 'repl', 'visualize', 'tests', 'ide', 'coverage', 'listtree', 'tree'])
       })
@@ -263,9 +284,7 @@ try {
       }
       if (dev) assert.equal(await channelTab.locator('#glpython-reset-late').isVisible(), false, 'no buttons in a visualization-only block')
       await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
-      await channelTab.locator('#glpython-ide-files').click()
-      await channelTab.waitForTimeout(300)
-      const link = new URL(await channelTab.evaluate(() => navigator.clipboard.readText()))
+      const link = await copiedLink(channelTab, channelTab.locator('#glpython-ide-files'))
       assert.equal(link.origin + link.pathname, dev ? `${embedOrigin}/dev/` : `${embedOrigin}/`, 'the IDE link')
       assert.equal(await channelTab.evaluate(() => localStorage.getItem('glpythonChannel')), dev ? 'dev' : null, 'the flag')
     })
