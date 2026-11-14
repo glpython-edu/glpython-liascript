@@ -299,7 +299,7 @@ try {
   {
     const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <div class="lia-slide__container" style="height:600px;overflow:auto">
-${[['tall', 'eval', []], ['big', 'eval', ['large']]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+${[['tall', 'eval', []], ['big', 'eval', ['large']], ['vis', 'visual', []]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
   <div class="lia-code--block"><lia-editor data-text="x = 1" data-fill="start"></lia-editor></div>
   ${template.replaceAll('@0', id).replaceAll('@1', mode)}
   <p>Text</p>
@@ -317,7 +317,7 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
     const heightTab = await heightContext.newPage()
     heightTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
     await heightTab.goto(`${courseOrigin}/`)
-    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 2, null, { timeout: 10000 })
+    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 3, null, { timeout: 10000 })
     const report = (id, height, visualizing) => heightTab.frameLocator(`#glpython-frame-${id}`).locator('html').evaluate((html, [height, visualizing, origin]) => parent.postMessage({ type: 'glpython:resize', version: 4, height, visualizing }, origin), [height, visualizing, courseOrigin])
     const sizes = (id) => heightTab.evaluate((id) => ({ frame: document.querySelector(`#glpython-frame-${id}`).clientHeight, block: document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed').getBoundingClientRect().height }), id)
     const settle = () => heightTab.waitForTimeout(150)
@@ -345,6 +345,32 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
       await settle()
       const size = await sizes('big')
       assert.ok(Math.abs(size.block - 480) <= 2, `visualizing: 80% of 600px (${JSON.stringify(size)})`)
+    })
+    // The minimums (minFrameHeight, minVisualFrameHeight) and the least
+    // share (leastVisibleShare) of the README's «Height».
+    await check('the embed\'s height: the minimums', async () => {
+      assert.equal((await sizes('vis')).frame, 190, 'a visualization-only block before its first report')
+      await report('vis', 100, true)
+      await settle()
+      assert.equal((await sizes('vis')).frame, 190, 'a visualization-only block with a short content')
+      await report('tall', 100, false)
+      await settle()
+      assert.equal((await sizes('tall')).frame, 170, 'a block with an editor and a short content')
+    })
+    await check('the embed\'s height: half the visible height when the block\'s rows grow', async () => {
+      await heightTab.evaluate(() => {
+        const rows = document.createElement('div')
+        rows.id = 'tall-rows'
+        rows.style.height = '400px'
+        document.querySelector('#glpython-frame-tall').closest('.glpython-embed').prepend(rows)
+      })
+      await report('tall', 2000, false)
+      await settle()
+      assert.equal((await sizes('tall')).frame, 300, 'the iframe half of 600px')
+      await heightTab.evaluate(() => document.querySelector('#tall-rows').remove())
+      await settle()
+      const size = await sizes('tall')
+      assert.ok(Math.abs(size.block - 480) <= 2, `the rows closed again: 80% (${JSON.stringify(size)})`)
     })
     await heightContext.close()
   }
