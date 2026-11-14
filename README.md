@@ -101,8 +101,22 @@ window.__glpythonMount = (args, send) => {
   // "large": its maximum), and never gets smaller: until its trace arrives,
   // the embed reports only its loading state (160px), so the iframe would
   // first shrink and then grow again - in a course e.g. right when a quiz's
-  // solution opens.
+  // solution opens. The rule as a whole: «Height» in this README.
+  // The values (the embed's own minimums are in glpython-editor's
+  // src/embed/style.css):
+  // - the most of the course's visible height the whole block takes, so it
+  //   fits into view with some text around it;
   const visibleShare = 0.8
+  // - the least of it the iframe keeps when the block's own rows above it
+  //   grow (a library's file or the IDE link opened there);
+  const leastVisibleShare = 0.5
+  // - the smallest iframe of a block with an editor: a little more than the
+  //   embed's loading state (160px), which it reports until it is ready;
+  const minFrameHeight = 170
+  // - the smallest iframe of a visualization-only block: about the height a
+  //   short visualization ends up with (188px), so the block doesn't shrink
+  //   to the loading state and grow again while its trace comes.
+  const minVisualFrameHeight = 190
   let contentHeight = null
   let visualizing = mode === "visual"
   let observedScroller
@@ -131,8 +145,8 @@ window.__glpythonMount = (args, send) => {
     // count in - unless one opened there (a library's file, the IDE link)
     // would leave the iframe less than half of the visible height.
     const rows = box.getBoundingClientRect().height - frame.getBoundingClientRect().height
-    const maxHeight = Math.round(Math.max(visible * visibleShare - rows, visible * 0.5))
-    const minHeight = Math.min(maxHeight, large && visualizing ? maxHeight : mode === "visual" ? 190 : 170)
+    const maxHeight = Math.round(Math.max(visible * visibleShare - rows, visible * leastVisibleShare))
+    const minHeight = Math.min(maxHeight, large && visualizing ? maxHeight : mode === "visual" ? minVisualFrameHeight : minFrameHeight)
     const height = `${Math.max(minHeight, Math.min(contentHeight ?? minHeight, maxHeight))}px`
     if (frame.style.height !== height) frame.style.height = height
   }
@@ -1388,6 +1402,45 @@ those sites, so it isn't part of CI; run it before a release.
 
 For local embed development, change `embedOrigin` and `embedUrl` in the template
 header to the origin printed by `npm run dev:embed` in `glpython-editor`.
+
+### Height
+
+For whoever changes how tall a block is. The code is `fitHeight` in `@onload`;
+the values are named constants just above it, each with a comment.
+
+- **The macro decides.** It sets the iframe's height; the embed never sets its
+  own. It measures again whenever the element that scrolls the course
+  (LiaScript's `.lia-slide__container`, else the window) or the block changes
+  size: window, fullscreen, rotation, presentation mode, LiaScript's top bar.
+- **The embed reports** `glpython:resize` with `height`, its *natural* height
+  (what its content needs: the code area and the console at their content's
+  height, not the iframe's current height, so a clipped embed doesn't stay
+  small; `naturalHeight` in glpython-editor's `src/embed/App.tsx`), and
+  `visualizing`. Until it is ready it reports its loading state, 160px.
+- **The rule:** the iframe is the natural height, but
+  - at most `visibleShare` (80%) of the visible height, minus the block's own
+    rows above the iframe (buttons, libraries, notes), so that the whole block
+    fits into view with some text around it;
+  - yet at least `leastVisibleShare` (half) of the visible height when those
+    rows grow taller (a library's file or the IDE link opened there);
+  - and at least `minFrameHeight` (170px), for a visualization-only block
+    `minVisualFrameHeight` (190px: about what a short visualization ends up
+    with, so the block doesn't shrink to the loading state and grow again
+    while its trace comes). Neither minimum goes above the maximum.
+- **`large`:** while visualizing, the iframe takes the maximum, and the embed
+  fills it (the code area grows); otherwise as without `large`.
+- **Inside the embed** (glpython-editor's `src/embed/style.css`): when the
+  iframe is shorter than the content, only the visualizer's code area (while
+  visualizing) and the console (otherwise) give way, down to their own
+  minimums (the code area 140px); the bars keep their height. The console is
+  at most 480px and then scrolls.
+- **Below about 500px of visible height** these minimums no longer fit into
+  80%: the iframe's own page then scrolls a little. That limit isn't a
+  constant; it is the bars, the 140px code area and the console of a typical
+  block, and it moves with them.
+- **Checks:** `npm run check:ready` («the embed's height» cases) checks the
+  80%, a short content, a taller visible area, `large`, both minimums and the
+  half-height fallback, with a stub embed that reports the heights it is given.
 
 ## Lizenz / License
 
