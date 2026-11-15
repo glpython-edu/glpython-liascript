@@ -275,13 +275,27 @@ try {
     await check(label, async () => {
       const src = new URL(await channelTab.locator('#glpython-frame-files').getAttribute('src'))
       assert.equal(src.origin + src.pathname, dev ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`, 'the embed')
-      // The badge is the embed's own, in its visualizer's bar (P63): the
-      // block shows none and doesn't ask the embed to leave it out, and a
-      // visualization-only block ("late") has no button row, dev or not.
+      // While the embed visualizes, the badge is the embed's own, in its
+      // step bar (P63): the block doesn't ask the embed to leave it out. A
+      // block that runs shows it at the left end of its ▶ row (P66), without
+      // a tooltip; a visualization-only block ("late") has no button row, dev
+      // or not, and so no badge of the block's.
       assert.equal(src.searchParams.get('channelBadge'), null, 'the embed shows its own badge')
-      assert.equal(await channelTab.locator('.glp-channel-badge, [id^="glpython-channel-"]').count(), 0, 'no badge in the block')
       assert.equal(await channelTab.locator('#glpython-controls-files').isVisible(), true, 'the button row of an eval block')
       assert.equal(await channelTab.locator('#glpython-controls-late').isVisible(), false, 'no button row in a visualization-only block')
+      const badge = channelTab.locator('#glpython-channel-files')
+      assert.equal(await badge.isVisible(), dev, 'the badge in the ▶ row of an eval block')
+      assert.equal(await channelTab.locator('#glpython-controls-files').evaluate((row) => row.firstElementChild.id), 'glpython-channel-files', 'at the row\'s left end')
+      assert.equal(await badge.getAttribute('title'), null, 'no tooltip')
+      assert.equal(await channelTab.locator('[id^="glpython-channel-"]:visible').count(), dev ? blocks.filter((block) => block.mode !== 'visual').length : 0, 'only in blocks that run')
+      if (dev) {
+        // The embed visualizes: the badge goes, and comes back after.
+        const report = (visualizing) => channelTab.frameLocator('#glpython-frame-files').locator('html').evaluate((html, visualizing) => parent.postMessage({ type: 'glpython:resize', version: 4, height: 300, visualizing }, '*'), visualizing)
+        await report(true)
+        await badge.waitFor({ state: 'hidden', timeout: 5000 })
+        await report(false)
+        await badge.waitFor({ state: 'visible', timeout: 5000 })
+      }
       await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
       const link = await copiedLink(channelTab, channelTab.locator('#glpython-ide-files'))
       assert.equal(link.origin + link.pathname, dev ? `${embedOrigin}/dev/` : `${embedOrigin}/`, 'the IDE link')
@@ -446,7 +460,7 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
   // visualization-only or not, with its library listed or "hidelibraries".
   {
     const parserUrl = `${courseOrigin}/lib/parser.py`
-    const heightBlocks = [['visual-lib', 'visual', [parserUrl]], ['visual-quiet', 'visual', [`hidelibraries ${parserUrl}`]], ['visual-plain', 'visual', []], ['eval-lib', 'eval', [parserUrl]], ['eval-quiet', 'eval', [`hidelibraries ${parserUrl}`]]]
+    const heightBlocks = [['visual-lib', 'visual', [parserUrl]], ['visual-quiet', 'visual', [`hidelibraries ${parserUrl}`]], ['visual-plain', 'visual', []], ['eval-lib', 'eval', [parserUrl]], ['eval-quiet', 'eval', [`hidelibraries ${parserUrl}`]], ['eval-run', 'eval', ['features=run']], ['eval-all', 'eval', []], ['turtle', 'turtle', []]]
     const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 ${heightBlocks.map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
   <div class="lia-code--block"><lia-editor data-text="from parser import parse" data-fill="start"></lia-editor></div>
@@ -454,8 +468,8 @@ ${heightBlocks.map(([id, mode, options]) => `<div class="lia-slide__content" dat
 </div>`).join('\n')}
 ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
 </body></html>`
-    const measure = async (flag) => {
-      const context = await browser.newContext({ viewport: { width: 1000, height: 3000 } })
+    const measure = async (flag, width) => {
+      const context = await browser.newContext({ viewport: { width, height: 3000 } })
       await context.route('**/*', (route) => {
         const url = new URL(route.request().url())
         if (url.href === parserUrl) return route.fulfill({ contentType: 'text/plain', body: 'def parse(text):\n    return text\n' })
@@ -475,15 +489,23 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
         return [id, { block: block.getBoundingClientRect().height, frameTop: frame.getBoundingClientRect().top - block.getBoundingClientRect().top }]
       })), heightBlocks.map(([id]) => id))
       const src = new URL(await tab.locator('#glpython-frame-visual-lib').getAttribute('src'))
+      const badges = await tab.evaluate((ids) => ids.filter((id) => document.querySelector(`#glpython-channel-${id}`)?.offsetWidth > 0), heightBlocks.map(([id]) => id))
       await context.close()
-      return { heights, embed: src.pathname }
+      return { heights, embed: src.pathname, badges }
     }
-    await check('a dev block is as tall as a live one (with and without "hidelibraries")', async () => {
-      const live = await measure('live')
-      const dev = await measure('dev')
-      assert.equal(dev.embed, '/glpython-editor/dev/index.html', 'the dev embed')
-      assert.deepEqual(dev.heights, live.heights, 'the heights')
-    })
+    // At 1000px every ▶ row has room for the badge (P66); at 300px a row
+    // that would wrap with it leaves it out, and the heights stay the same.
+    for (const width of [1000, 300]) {
+      await check(`a dev block is as tall as a live one (with and without "hidelibraries"), ${width}px`, async () => {
+        const live = await measure('live', width)
+        const dev = await measure('dev', width)
+        assert.equal(dev.embed, '/glpython-editor/dev/index.html', 'the dev embed')
+        assert.deepEqual(live.badges, [], 'no badge on the live channel')
+        if (width === 1000) assert.deepEqual(dev.badges, ['eval-lib', 'eval-quiet', 'eval-run', 'eval-all', 'turtle'], 'the badge in every ▶ row')
+        assert.deepEqual(dev.heights, live.heights, 'the heights')
+        console.log(`  ${width}px: the badge in ${dev.badges.join(', ') || 'no block'}`)
+      })
+    }
   }
 } finally {
   await browser.close()
