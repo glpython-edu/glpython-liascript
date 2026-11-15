@@ -135,12 +135,37 @@ try {
       failures.push(`${label}: ${error.message}`)
     }
   }
+  // What this catches: ▶ held back until the block's text arrives (1000 ms
+  // after "ready" here) or until the macro stops waiting for it (2000 ms).
+  // So the time counts from the click itself, in the page (Playwright's
+  // click first waits for the button to be stable and scrolls it into view,
+  // which took up to ~400 ms on a busy machine, P58), to the message's
+  // arrival in the embed; 250 ms is far below either wait. The click must
+  // come before the text, or the check would prove nothing.
+  // What a button copies: the clipboard gets a mark first, then the click,
+  // then we wait until the copy has replaced the mark (writing to the
+  // clipboard is asynchronous; a fixed wait could read the mark, P58).
+  const copiedLink = async (tab, button) => {
+    await tab.evaluate(() => navigator.clipboard.writeText('(nothing copied)'))
+    await button.click()
+    await tab.waitForFunction(async () => (await navigator.clipboard.readText()) !== '(nothing copied)', null, { timeout: 5000, polling: 50 })
+    return new URL(await tab.evaluate(() => navigator.clipboard.readText()))
+  }
   await check('▶ and «Tests» usable while the first program waits', async () => {
     assert.equal(await runButton.isEnabled(), true, '▶ is disabled')
-    const clickedAt = Date.now()
+    await tab.evaluate(() => {
+      window.clickedAt = null
+      document.querySelector('#glpython-run-click').addEventListener('click', () => { window.clickedAt ??= Date.now() }, { capture: true, once: true })
+    })
     await runButton.click()
     await tab.locator('#glpython-tests-click').click()
-    await tab.waitForTimeout(300)
+    await embed('click').evaluate(() => new Promise((resolve) => {
+      const done = () => window.received.filter((message) => message.type !== 'glpython:reset').length >= 2
+      if (done()) return resolve()
+      const timer = setInterval(() => { if (done()) { clearInterval(timer); resolve() } }, 10)
+    }))
+    const clickedAt = await tab.evaluate(() => window.clickedAt)
+    assert.ok(clickedAt - await readyAt('click') < 1000, `the click came ${clickedAt - await readyAt('click')} ms after "ready", after the text: the check can't tell`)
     const messages = await received('click')
     assert.deepEqual(messages.map((message) => message.type), ['glpython:run', 'glpython:test'])
     assert.ok(messages[0].at - clickedAt < 250, `the run came ${messages[0].at - clickedAt} ms after the click`)
@@ -201,9 +226,7 @@ try {
     await check(label, async () => {
       const button = linkTab.locator('#glpython-ide-files')
       await linkTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
-      await button.click()
-      await linkTab.waitForTimeout(300)
-      const link = new URL(await linkTab.evaluate(() => navigator.clipboard.readText()))
+      const link = await copiedLink(linkTab, button)
       assert.equal(link.origin + link.pathname, `${embedOrigin}/`)
       const compact = link.searchParams.get('p')
       const old = link.searchParams.get('project')
@@ -217,9 +240,7 @@ try {
     if (fflateLoads) {
       await check('«IDE-Link kopieren» carries the block\'s features=', async () => {
         await linkTab.waitForFunction(() => document.querySelector('#glpython-ide-feat')?.disabled === false, null, { timeout: 10000 })
-        await linkTab.locator('#glpython-ide-feat').click()
-        await linkTab.waitForTimeout(300)
-        const link = new URL(await linkTab.evaluate(() => navigator.clipboard.readText()))
+        const link = await copiedLink(linkTab, linkTab.locator('#glpython-ide-feat'))
         const payload = JSON.parse(inflateRawSync(Buffer.from(link.searchParams.get('p'), 'base64url')).toString('utf8'))
         assert.deepEqual(payload.features, ['run', 'repl', 'visualize', 'tests', 'ide', 'coverage', 'listtree', 'tree'])
       })
@@ -263,9 +284,7 @@ try {
       }
       if (dev) assert.equal(await channelTab.locator('#glpython-reset-late').isVisible(), false, 'no buttons in a visualization-only block')
       await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
-      await channelTab.locator('#glpython-ide-files').click()
-      await channelTab.waitForTimeout(300)
-      const link = new URL(await channelTab.evaluate(() => navigator.clipboard.readText()))
+      const link = await copiedLink(channelTab, channelTab.locator('#glpython-ide-files'))
       assert.equal(link.origin + link.pathname, dev ? `${embedOrigin}/dev/` : `${embedOrigin}/`, 'the IDE link')
       assert.equal(await channelTab.evaluate(() => localStorage.getItem('glpythonChannel')), dev ? 'dev' : null, 'the flag')
     })
@@ -280,7 +299,7 @@ try {
   {
     const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <div class="lia-slide__container" style="height:600px;overflow:auto">
-${[['tall', 'eval', []], ['big', 'eval', ['large']]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+${[['tall', 'eval', []], ['big', 'eval', ['large']], ['vis', 'visual', []]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
   <div class="lia-code--block"><lia-editor data-text="x = 1" data-fill="start"></lia-editor></div>
   ${template.replaceAll('@0', id).replaceAll('@1', mode)}
   <p>Text</p>
@@ -298,7 +317,7 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
     const heightTab = await heightContext.newPage()
     heightTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
     await heightTab.goto(`${courseOrigin}/`)
-    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 2, null, { timeout: 10000 })
+    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 3, null, { timeout: 10000 })
     const report = (id, height, visualizing) => heightTab.frameLocator(`#glpython-frame-${id}`).locator('html').evaluate((html, [height, visualizing, origin]) => parent.postMessage({ type: 'glpython:resize', version: 4, height, visualizing }, origin), [height, visualizing, courseOrigin])
     const sizes = (id) => heightTab.evaluate((id) => ({ frame: document.querySelector(`#glpython-frame-${id}`).clientHeight, block: document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed').getBoundingClientRect().height }), id)
     const settle = () => heightTab.waitForTimeout(150)
@@ -326,6 +345,32 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
       await settle()
       const size = await sizes('big')
       assert.ok(Math.abs(size.block - 480) <= 2, `visualizing: 80% of 600px (${JSON.stringify(size)})`)
+    })
+    // The minimums (minFrameHeight, minVisualFrameHeight) and the least
+    // share (leastVisibleShare) of the README's «Height».
+    await check('the embed\'s height: the minimums', async () => {
+      assert.equal((await sizes('vis')).frame, 190, 'a visualization-only block before its first report')
+      await report('vis', 100, true)
+      await settle()
+      assert.equal((await sizes('vis')).frame, 190, 'a visualization-only block with a short content')
+      await report('tall', 100, false)
+      await settle()
+      assert.equal((await sizes('tall')).frame, 170, 'a block with an editor and a short content')
+    })
+    await check('the embed\'s height: half the visible height when the block\'s rows grow', async () => {
+      await heightTab.evaluate(() => {
+        const rows = document.createElement('div')
+        rows.id = 'tall-rows'
+        rows.style.height = '400px'
+        document.querySelector('#glpython-frame-tall').closest('.glpython-embed').prepend(rows)
+      })
+      await report('tall', 2000, false)
+      await settle()
+      assert.equal((await sizes('tall')).frame, 300, 'the iframe half of 600px')
+      await heightTab.evaluate(() => document.querySelector('#tall-rows').remove())
+      await settle()
+      const size = await sizes('tall')
+      assert.ok(Math.abs(size.block - 480) <= 2, `the rows closed again: 80% (${JSON.stringify(size)})`)
     })
     await heightContext.close()
   }
