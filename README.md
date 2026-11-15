@@ -261,6 +261,7 @@ window.__glpythonMount = (args, send) => {
 .glpython-embed .glp-button--ide { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .glpython-embed .glp-button--ide-menu { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; padding-left: 6px; padding-right: 8px; }
 .glpython-embed .glp-ide-status { color: ${token("text-muted")}; }
+.glpython-embed .glp-channel-badge { flex: 0 0 auto; padding: 0 5px; color: ${token("warning")}; background: ${token("warning-bg")}; border: 1px solid ${token("warning")}; border-radius: ${token("radius")}; font: 700 10px/1.4 ${token("font-ui")}; letter-spacing: .04em; text-transform: uppercase; }
 .glpython-embed .glp-ide-link { margin: 0; padding: 0 12px 12px; }
 .glpython-embed .glp-ide-note { margin: 0 12px 12px; padding: 6px 10px; color: ${token("text")}; background: ${token("info-bg")}; border-left: 3px solid ${token("info")}; border-radius: ${token("radius")}; font-size: 13px; }
 .glpython-embed .glp-ide-link input { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 6px 8px; color: ${token("text")}; background: ${token("surface")}; border: 1px solid ${token("border-control")}; border-radius: ${token("radius")}; font: 13px/1.4 ${token("font-code")}; }
@@ -325,6 +326,9 @@ window.__glpythonMount = (args, send) => {
   // ▶ Run is ■ Stop.
   let stopSupported = false
   let pythonBusy = false
+  // Whether the embed visualizes (glpython:resize): then the dev channel's
+  // badge is in its step bar, not in the ▶ row.
+  let embedVisualizing = false
   // The newest protocol version both understand.
   const embedVersion = () => stopSupported ? protocolVersion : testsSupported ? 3 : filesSupported ? 2 : 1
   let runtimeReady = false
@@ -747,9 +751,14 @@ window.__glpythonMount = (args, send) => {
       pythonBusy = message.busy === true
       attach()
     } else if (message.type === "glpython:resize" && Number.isFinite(message.height)) {
-      // Its "visualizing" isn't needed: every block follows the same rule.
+      // Its "visualizing" only moves the dev channel's badge (P66); the
+      // height follows the same rule either way.
       contentHeight = message.height
       fitHeight()
+      if (embedVisualizing !== (message.visualizing === true)) {
+        embedVisualizing = message.visualizing === true
+        fitChannelBadge()
+      }
     } else if (message.type === "glpython:error") {
       showError(message.message || strings.embedError)
     }
@@ -763,6 +772,24 @@ window.__glpythonMount = (args, send) => {
     const value = shown ? display : "none"
     if (element.style.display !== value) element.style.display = value
   }
+
+  // The dev channel's badge in a block that runs (P66): at the left end of
+  // its ▶ row, a row the block has anyway, until the embed visualizes (then
+  // the embed shows it in its step bar). A visualization-only block has no ▶
+  // row; its badge is the embed's. Left out where the row would wrap with it,
+  // so the block is exactly as tall as on the live channel.
+  const fitChannelBadge = () => {
+    const badge = document.getElementById(`glpython-channel-${sessionId}`)
+    const row = badge?.parentElement
+    if (!badge || !row) return
+    const wanted = channel === "dev" && mode !== "visual" && !embedVisualizing
+    setShown(badge, false)
+    if (!wanted) return
+    const without = row.offsetHeight
+    setShown(badge, true)
+    if (row.offsetHeight > without) setShown(badge, false)
+  }
+  const channelRowObserver = new ResizeObserver(() => fitChannelBadge())
 
   // LiaScript's own run button (</>) of the block. It stays hidden: the macro's
   // ▶, «Tests» and «Visualisieren» click it, so LiaScript stores the block -
@@ -864,9 +891,10 @@ window.__glpythonMount = (args, send) => {
     ) ?? null
     if (codeBlock && codeBlock.hidden !== (mode === "visual")) codeBlock.hidden = mode === "visual"
     setShown(liaScriptRunButton(), false)
-    // A visualization-only block has no buttons. The dev channel's badge
-    // is the embed's own, in its visualizer's bar (P63): the block shows
-    // none, so a dev block is as tall as a live one.
+    // A visualization-only block has no buttons. The dev channel's badge is
+    // in the embed's step bar while it visualizes (P63), else at the left end
+    // of the ▶ row (fitChannelBadge, P66) - never a row of its own, so a dev
+    // block is as tall as a live one.
     setShown(controls, mode !== "visual", "flex")
     // Only when it differs: attach() runs on every DOM change (see the
     // MutationObserver below), and replacing a text is such a change.
@@ -896,6 +924,8 @@ window.__glpythonMount = (args, send) => {
     updateIdeButton()
     textWait?.check()
     libraries.then(showLibraries)
+    fitChannelBadge()
+    if (controls) channelRowObserver.observe(controls)
     if (frame.dataset.glpythonInitialized === "true") return
     frame.dataset.glpythonInitialized = "true"
     fitHeight()
@@ -951,6 +981,7 @@ window.__glpythonPending = []
 
 <div class="glpython-embed glpython-embed--@1">
   <div id="glpython-controls-@0" class="glp-buttons">
+    <span id="glpython-channel-@0" class="glp-channel-badge" style="display:none">dev</span>
     <span id="glpython-run-split-@0" class="glp-run-split" style="display:none">
       <button id="glpython-run-@0" class="glp-button glp-button--primary glp-button--run" type="button" disabled>▶ Run</button>
       <button id="glpython-run-menu-@0" class="glp-button glp-button--run-menu" type="button" disabled aria-haspopup="true" aria-expanded="false" style="display:none">▾</button>
@@ -1357,9 +1388,11 @@ execution, visualization, and turtle graphics remain available.
 glpython has a test version next to the live one: the embed at
 <https://glpython-edu.github.io/glpython-editor/dev/index.html> and the IDE at
 <https://glpython-edu.github.io/dev/>, each built from its repo's `dev`
-branch. Both show a «DEV» badge (in a course in the embed's visualizer bar, at its
-left end, while it visualizes and where the bar has room for it - never a row
-of its own, so a block is as tall as for learners; in the IDE in its bar). A course keeps loading the live embed; a
+branch. Both show a «DEV» badge. In a course it sits at the left end of a row the
+block has anyway: in the embed's step bar while it visualizes, else (a block
+that runs, a turtle block) in the block's ▶ row, never in both. Where that row
+has no room for it (it would wrap), it is left out: never a row of its own, so
+a block is as tall as for learners. In the IDE it is in its bar. A course keeps loading the live embed; a
 browser loads the dev embed in every course instead, and its IDE links
 («In der IDE öffnen», «IDE-Link kopieren») open the dev IDE, once the flag is
 set for the course's origin (e.g. liascript.github.io):
