@@ -275,14 +275,27 @@ try {
     await check(label, async () => {
       const src = new URL(await channelTab.locator('#glpython-frame-files').getAttribute('src'))
       assert.equal(src.origin + src.pathname, dev ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`, 'the embed')
-      assert.equal(src.searchParams.get('channelBadge'), dev ? 'host' : null, 'the embed leaves the badge to the block')
-      // The badge at the top of the block, next to its buttons; a
-      // visualization-only block ("late") shows a row with only the badge.
-      for (const id of ['files', 'late']) {
-        assert.equal(await channelTab.locator(`#glpython-channel-${id}`).isVisible(), dev, `the badge of block ${id}`)
-        assert.equal(await channelTab.locator(`#glpython-controls-${id}`).isVisible(), id === 'files' || dev, `the button row of block ${id}`)
+      // While the embed visualizes, the badge is the embed's own, in its
+      // step bar (P63): the block doesn't ask the embed to leave it out. A
+      // block that runs shows it at the left end of its ▶ row (P66), without
+      // a tooltip; a visualization-only block ("late") has no button row, dev
+      // or not, and so no badge of the block's.
+      assert.equal(src.searchParams.get('channelBadge'), null, 'the embed shows its own badge')
+      assert.equal(await channelTab.locator('#glpython-controls-files').isVisible(), true, 'the button row of an eval block')
+      assert.equal(await channelTab.locator('#glpython-controls-late').isVisible(), false, 'no button row in a visualization-only block')
+      const badge = channelTab.locator('#glpython-channel-files')
+      assert.equal(await badge.isVisible(), dev, 'the badge in the ▶ row of an eval block')
+      assert.equal(await channelTab.locator('#glpython-controls-files').evaluate((row) => row.firstElementChild.id), 'glpython-channel-files', 'at the row\'s left end')
+      assert.equal(await badge.getAttribute('title'), null, 'no tooltip')
+      assert.equal(await channelTab.locator('[id^="glpython-channel-"]:visible').count(), dev ? blocks.filter((block) => block.mode !== 'visual').length : 0, 'only in blocks that run')
+      if (dev) {
+        // The embed visualizes: the badge goes, and comes back after.
+        const report = (visualizing) => channelTab.frameLocator('#glpython-frame-files').locator('html').evaluate((html, visualizing) => parent.postMessage({ type: 'glpython:resize', version: 4, height: 300, visualizing }, '*'), visualizing)
+        await report(true)
+        await badge.waitFor({ state: 'hidden', timeout: 5000 })
+        await report(false)
+        await badge.waitFor({ state: 'visible', timeout: 5000 })
       }
-      if (dev) assert.equal(await channelTab.locator('#glpython-reset-late').isVisible(), false, 'no buttons in a visualization-only block')
       await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
       const link = await copiedLink(channelTab, channelTab.locator('#glpython-ide-files'))
       assert.equal(link.origin + link.pathname, dev ? `${embedOrigin}/dev/` : `${embedOrigin}/`, 'the IDE link')
@@ -294,12 +307,12 @@ try {
   // The embed's height (P53b): what its content needs (glpython:resize), at
   // most 80% of the visible height of the element that scrolls the course
   // (here a stand-in for LiaScript's .lia-slide__container) with the
-  // block's buttons; measured anew when that element changes size. With
-  // "large", while visualizing, that maximum.
+  // block's buttons; measured anew when that element changes size. "large"
+  // (P60) follows the same rule, with the same buttons.
   {
     const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <div class="lia-slide__container" style="height:600px;overflow:auto">
-${[['tall', 'eval', []], ['big', 'eval', ['large']], ['vis', 'visual', []]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+${[['tall', 'eval', []], ['big', 'eval', ['large']], ['vis', 'visual', []], ['demo', 'visual', ['large']]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
   <div class="lia-code--block"><lia-editor data-text="x = 1" data-fill="start"></lia-editor></div>
   ${template.replaceAll('@0', id).replaceAll('@1', mode)}
   <p>Text</p>
@@ -317,7 +330,7 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
     const heightTab = await heightContext.newPage()
     heightTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
     await heightTab.goto(`${courseOrigin}/`)
-    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 3, null, { timeout: 10000 })
+    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 4, null, { timeout: 10000 })
     const report = (id, height, visualizing) => heightTab.frameLocator(`#glpython-frame-${id}`).locator('html').evaluate((html, [height, visualizing, origin]) => parent.postMessage({ type: 'glpython:resize', version: 4, height, visualizing }, origin), [height, visualizing, courseOrigin])
     const sizes = (id) => heightTab.evaluate((id) => ({ frame: document.querySelector(`#glpython-frame-${id}`).clientHeight, block: document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed').getBoundingClientRect().height }), id)
     const settle = () => heightTab.waitForTimeout(150)
@@ -337,14 +350,34 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
       assert.ok(Math.abs(size.block - 720) <= 2, `a taller visible area: 80% of 900px (${JSON.stringify(size)})`)
       await heightTab.evaluate(() => { document.querySelector('.lia-slide__container').style.height = '600px' })
     })
-    await check('the embed\'s height: "large" while visualizing', async () => {
+    await check('the embed\'s height: "large" has no height of its own', async () => {
       await report('big', 300, false)
       await settle()
       assert.equal((await sizes('big')).frame, 300, 'not visualizing: its own height')
       await report('big', 300, true)
       await settle()
-      const size = await sizes('big')
-      assert.ok(Math.abs(size.block - 480) <= 2, `visualizing: 80% of 600px (${JSON.stringify(size)})`)
+      assert.equal((await sizes('big')).frame, 300, 'visualizing: still its own height')
+      // A short demo (a visualization-only "large" block) is as tall as its
+      // tallest step, which the embed reports; a long one stops at 80%.
+      assert.equal((await sizes('demo')).frame, 190, 'a short demo before its first report: the minimum')
+      await report('demo', 260, true)
+      await settle()
+      assert.equal((await sizes('demo')).frame, 260, 'a short demo: its tallest step, not 80%')
+      await report('demo', 2000, true)
+      await settle()
+      const size = await sizes('demo')
+      assert.ok(Math.abs(size.block - 480) <= 2, `a long demo: 80% of 600px (${JSON.stringify(size)})`)
+      await report('demo', 260, true)
+    })
+    await check('the embed\'s height: "large" keeps the buttons as without it', async () => {
+      const look = (id) => heightTab.evaluate((id) => {
+        const block = document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed')
+        return { classes: [...block.querySelectorAll('[class*="large"]')].length + (block.className.includes('large') ? 1 : 0), buttons: [...block.querySelectorAll('.glp-button')].map((button) => { const style = getComputedStyle(button); return `${button.id.replace(/-[^-]+$/, '')} ${style.padding} ${style.fontSize}` }) }
+      }, id)
+      const [big, tall] = [await look('big'), await look('tall')]
+      assert.equal(big.classes, 0, 'no class for "large" in the block')
+      assert.ok(big.buttons.length > 0, 'the block has buttons')
+      assert.deepEqual(big.buttons, tall.buttons, 'the same buttons, padding and font size')
     })
     // The minimums (minFrameHeight, minVisualFrameHeight) and the least
     // share (leastVisibleShare) of the README's «Height».
@@ -373,6 +406,106 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
       assert.ok(Math.abs(size.block - 480) <= 2, `the rows closed again: 80% (${JSON.stringify(size)})`)
     })
     await heightContext.close()
+  }
+
+  // "hidelibraries" (P62): the block doesn't list its library below the
+  // buttons, but loads it and sends it with the program as always; one that
+  // fails to load is still listed, with why.
+  {
+    const parserUrl = `${courseOrigin}/lib/parser.py`
+    const parserSource = 'def parse(text):\n    return text\n'
+    const libraryBlocks = [['shown', [parserUrl]], ['quiet', [`hidelibraries ${parserUrl}`]], ['broken', [`hidelibraries ${courseOrigin}/lib/fehlt.py`]]]
+    const libraryPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+${libraryBlocks.map(([id, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+  <div class="lia-code--block"><lia-editor data-text="from parser import parse" data-fill="start"></lia-editor></div>
+  ${template.replaceAll('@0', id).replaceAll('@1', 'eval')}
+</div>`).join('\n')}
+${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
+</body></html>`
+    const libraryContext = await browser.newContext({ viewport: { width: 1000, height: 2000 } })
+    await libraryContext.route('**/*', (route) => {
+      const url = new URL(route.request().url())
+      if (url.href === parserUrl) return route.fulfill({ contentType: 'text/plain', body: parserSource })
+      if (url.origin === courseOrigin && url.pathname.startsWith('/lib/')) return route.fulfill({ status: 404, body: '' })
+      if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: libraryPage })
+      if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+      return route.abort()
+    })
+    const libraryTab = await libraryContext.newPage()
+    libraryTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+    await libraryTab.goto(`${courseOrigin}/`)
+    await libraryTab.waitForFunction(() => Object.keys(window.readyAt).length === 3, null, { timeout: 10000 })
+    const rows = (id) => libraryTab.locator(`#glpython-files-${id}`).evaluate((container) => ({ hidden: container.hidden, rows: [...container.querySelectorAll('.glp-file')].map((row) => [row.querySelector('code').textContent, row.querySelector('button')?.textContent ?? row.querySelector('.glpython-error')?.textContent.trim()]) }))
+    const sentFiles = async (id) => {
+      await libraryTab.locator(`#glpython-run-${id}`).click()
+      const embed = libraryTab.frameLocator(`#glpython-frame-${id}`).locator('html')
+      await embed.evaluate(() => new Promise((resolve) => { const look = () => window.received.some((message) => message.type === 'glpython:run') ? resolve() : setTimeout(look, 50); look() }))
+      const run = (await embed.evaluate(() => window.received)).filter((message) => message.type === 'glpython:run').at(-1)
+      return Object.fromEntries(Object.values(run.files).map((file) => [file.path, file.source]))
+    }
+    await check('"hidelibraries": the library loads, the block doesn\'t list it', async () => {
+      await libraryTab.waitForFunction(() => document.querySelector('#glpython-files-shown .glp-file') !== null, null, { timeout: 10000 })
+      assert.deepEqual(await rows('shown'), { hidden: false, rows: [['parser.py', 'View file']] }, 'without the option')
+      assert.equal((await sentFiles('shown'))['parser.py'], parserSource, 'without the option: sent')
+      assert.equal((await sentFiles('quiet'))['parser.py'], parserSource, 'with the option: still sent')
+      assert.deepEqual(await rows('quiet'), { hidden: true, rows: [] }, 'with the option: no row')
+      await libraryTab.waitForFunction(() => document.querySelector('#glpython-files-broken .glp-file') !== null, null, { timeout: 20000 })
+      const broken = await rows('broken')
+      assert.ok(!broken.hidden && broken.rows.length === 1 && broken.rows[0][0] === 'fehlt.py' && broken.rows[0][1].includes('404'), `a library that failed: still listed (${JSON.stringify(broken)})`)
+    })
+    await libraryContext.close()
+  }
+
+  // P63: a block is exactly as tall in the dev channel as in the live one -
+  // visualization-only or not, with its library listed or "hidelibraries".
+  {
+    const parserUrl = `${courseOrigin}/lib/parser.py`
+    const heightBlocks = [['visual-lib', 'visual', [parserUrl]], ['visual-quiet', 'visual', [`hidelibraries ${parserUrl}`]], ['visual-plain', 'visual', []], ['eval-lib', 'eval', [parserUrl]], ['eval-quiet', 'eval', [`hidelibraries ${parserUrl}`]], ['eval-run', 'eval', ['features=run']], ['eval-all', 'eval', []], ['turtle', 'turtle', []]]
+    const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+${heightBlocks.map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+  <div class="lia-code--block"><lia-editor data-text="from parser import parse" data-fill="start"></lia-editor></div>
+  ${template.replaceAll('@0', id).replaceAll('@1', mode)}
+</div>`).join('\n')}
+${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
+</body></html>`
+    const measure = async (flag, width) => {
+      const context = await browser.newContext({ viewport: { width, height: 3000 } })
+      await context.route('**/*', (route) => {
+        const url = new URL(route.request().url())
+        if (url.href === parserUrl) return route.fulfill({ contentType: 'text/plain', body: 'def parse(text):\n    return text\n' })
+        if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: heightPage })
+        if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+        return route.abort()
+      })
+      const tab = await context.newPage()
+      tab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+      await tab.goto(`${courseOrigin}/#glpython=${flag}`)
+      await tab.waitForFunction((count) => Object.keys(window.readyAt).length === count, heightBlocks.length, { timeout: 10000 })
+      await tab.waitForFunction(() => document.querySelector('#glpython-files-visual-lib .glp-file') !== null, null, { timeout: 10000 })
+      await tab.waitForTimeout(300)
+      const heights = await tab.evaluate((ids) => Object.fromEntries(ids.map((id) => {
+        const frame = document.querySelector(`#glpython-frame-${id}`)
+        const block = frame.closest('.glpython-embed')
+        return [id, { block: block.getBoundingClientRect().height, frameTop: frame.getBoundingClientRect().top - block.getBoundingClientRect().top }]
+      })), heightBlocks.map(([id]) => id))
+      const src = new URL(await tab.locator('#glpython-frame-visual-lib').getAttribute('src'))
+      const badges = await tab.evaluate((ids) => ids.filter((id) => document.querySelector(`#glpython-channel-${id}`)?.offsetWidth > 0), heightBlocks.map(([id]) => id))
+      await context.close()
+      return { heights, embed: src.pathname, badges }
+    }
+    // At 1000px every ▶ row has room for the badge (P66); at 300px a row
+    // that would wrap with it leaves it out, and the heights stay the same.
+    for (const width of [1000, 300]) {
+      await check(`a dev block is as tall as a live one (with and without "hidelibraries"), ${width}px`, async () => {
+        const live = await measure('live', width)
+        const dev = await measure('dev', width)
+        assert.equal(dev.embed, '/glpython-editor/dev/index.html', 'the dev embed')
+        assert.deepEqual(live.badges, [], 'no badge on the live channel')
+        if (width === 1000) assert.deepEqual(dev.badges, ['eval-lib', 'eval-quiet', 'eval-run', 'eval-all', 'turtle'], 'the badge in every ▶ row')
+        assert.deepEqual(dev.heights, live.heights, 'the heights')
+        console.log(`  ${width}px: the badge in ${dev.badges.join(', ') || 'no block'}`)
+      })
+    }
   }
 } finally {
   await browser.close()

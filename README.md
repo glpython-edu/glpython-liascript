@@ -63,8 +63,9 @@ window.__glpythonMount = (args, send) => {
   const [sessionId, mode, ...optionArguments] = args
   // Optional per block, separated by spaces in any order: "box",
   // "substitution" or "tree" presets the visualizer's mode ("tree" only with
-  // the feature "tree"), and URLs of shared Python
-  // files to load as libraries, e.g. @GLPython.eval(box https://…/parser.py).
+  // the feature "tree"), URLs of shared Python files to load as libraries,
+  // e.g. @GLPython.eval(box https://…/parser.py), and "hidelibraries" (not
+  // listed below the buttons).
   // LiaScript splits macro arguments at commas, so "features=run,repl" arrives
   // as several arguments: they are joined back together here. Arguments that
   // weren't given stay literal ("@3") and are left out.
@@ -79,14 +80,19 @@ window.__glpythonMount = (args, send) => {
   // profiles from it); without it, everything shows - except "coverage"
   // (after Tests, the lines no example executed), "listtree" (lists such
   // as ["+", 2, 3] also drawn as a tree) and "tree" (the visualizer's mode
-  // «Baum»), which a course switches on explicitly. "large" enlarges the code and the visualizer, e.g. for a demo
-  // on the projector.
+  // «Baum»), which a course switches on explicitly. "large" makes the code
+  // bigger (20px, line height 1.6), e.g. for a demo on the projector; it has
+  // no height of its own.
   const featureNames = ["run", "tests", "visualize", "reset", "repl", "export", "ide", "coverage", "listtree", "tree"]
   const featuresOption = options.find((option) => option.startsWith("features="))
   const requestedFeatures = featuresOption ? featuresOption.slice("features=".length).split(",").map((name) => name.trim()).filter(Boolean) : featureNames.filter((name) => name !== "coverage" && name !== "listtree" && name !== "tree")
   const unknownFeatures = requestedFeatures.filter((name) => !featureNames.includes(name))
   const hasFeature = (name) => requestedFeatures.includes(name)
   const large = options.includes("large")
+  // "hidelibraries": the libraries load as always, but the block doesn't
+  // list them below its buttons (P62), e.g. where a course doesn't want the
+  // library read; one that failed to load is still listed, with why.
+  const hideLibraries = options.includes("hidelibraries")
   // The embed's height: the height its content needs (its glpython:resize),
   // at most 80% of the height the course shows right now - that of the
   // element that scrolls the course's content (LiaScript's
@@ -95,10 +101,9 @@ window.__glpythonMount = (args, send) => {
   // changes with the window, fullscreen, an iPad's rotation, the
   // presentation mode and LiaScript's top bar, so it is measured anew on
   // every change (fitHeight). A taller step scrolls the visualizer's code
-  // inside the embed, between its step bar and its footer. "large": while
-  // visualizing, the embed is as tall as it may be. A visualization-only
-  // block starts at the height a short visualization ends up with (with
-  // "large": its maximum), and never gets smaller: until its trace arrives,
+  // inside the embed, between its step bar and its footer. A
+  // visualization-only block starts at the height a short visualization
+  // ends up with, and never gets smaller: until its trace arrives,
   // the embed reports only its loading state (160px), so the iframe would
   // first shrink and then grow again - in a course e.g. right when a quiz's
   // solution opens. The rule as a whole: «Height» in this README.
@@ -118,7 +123,6 @@ window.__glpythonMount = (args, send) => {
   //   to the loading state and grow again while its trace comes.
   const minVisualFrameHeight = 190
   let contentHeight = null
-  let visualizing = mode === "visual"
   let observedScroller
   const heightObserver = new ResizeObserver(() => fitHeight())
   const scrollingAncestor = (element) => {
@@ -146,7 +150,7 @@ window.__glpythonMount = (args, send) => {
     // would leave the iframe less than half of the visible height.
     const rows = box.getBoundingClientRect().height - frame.getBoundingClientRect().height
     const maxHeight = Math.round(Math.max(visible * visibleShare - rows, visible * leastVisibleShare))
-    const minHeight = Math.min(maxHeight, large && visualizing ? maxHeight : mode === "visual" ? minVisualFrameHeight : minFrameHeight)
+    const minHeight = Math.min(maxHeight, mode === "visual" ? minVisualFrameHeight : minFrameHeight)
     const height = `${Math.max(minHeight, Math.min(contentHeight ?? minHeight, maxHeight))}px`
     if (frame.style.height !== height) frame.style.height = height
   }
@@ -167,7 +171,6 @@ window.__glpythonMount = (args, send) => {
       visualize: "Visualisieren",
       tests: "Tests",
       frameTitle: "glpython-Laufzeit",
-      devChannel: "Dev-Kanal: die Testversion von glpython, nur in diesem Browser. Links von hier öffnen die Test-IDE; nicht an Lernende weitergeben.",
       sourceUnreadable: "Der LiaScript-Quelltext konnte nicht gelesen werden.",
       inputUnavailable: "input() funktioniert hier nicht: Diese Seite kann nicht auf eine Eingabe warten.",
       inputInIde: "Programme mit input() laufen in der IDE, dort fragt die Konsole nach der Eingabe.",
@@ -199,7 +202,6 @@ window.__glpythonMount = (args, send) => {
       visualize: "Visualize",
       tests: "Tests",
       frameTitle: "glpython runtime",
-      devChannel: "Dev channel: glpython's test version, in this browser only. Links from here open the test IDE; don't share them with learners.",
       sourceUnreadable: "The LiaScript source block could not be read.",
       inputUnavailable: "input() doesn't work here: this page can't wait for an answer.",
       inputInIde: "Programs with input() run in the IDE, where the console asks for the input.",
@@ -259,9 +261,7 @@ window.__glpythonMount = (args, send) => {
 .glpython-embed .glp-button--ide { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .glpython-embed .glp-button--ide-menu { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; padding-left: 6px; padding-right: 8px; }
 .glpython-embed .glp-ide-status { color: ${token("text-muted")}; }
-.glpython-embed .glp-channel-badge { margin-left: auto; padding: 2px 8px; color: ${token("warning")}; background: ${token("warning-bg")}; border: 1px solid ${token("warning")}; border-radius: ${token("radius")}; font: 700 12px/1.4 ${token("font-ui")}; letter-spacing: .04em; }
-.glpython-embed .glp-buttons--badge-only { padding: 8px 12px; }
-.glpython-embed .glp-buttons--badge-only :is(.glp-run-split, .glp-button, .glp-ide-split, .glp-ide-status) { display: none !important; }
+.glpython-embed .glp-channel-badge { flex: 0 0 auto; padding: 0 5px; color: ${token("warning")}; background: ${token("warning-bg")}; border: 1px solid ${token("warning")}; border-radius: ${token("radius")}; font: 700 10px/1.4 ${token("font-ui")}; letter-spacing: .04em; text-transform: uppercase; }
 .glpython-embed .glp-ide-link { margin: 0; padding: 0 12px 12px; }
 .glpython-embed .glp-ide-note { margin: 0 12px 12px; padding: 6px 10px; color: ${token("text")}; background: ${token("info-bg")}; border-left: 3px solid ${token("info")}; border-radius: ${token("radius")}; font-size: 13px; }
 .glpython-embed .glp-ide-link input { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 6px 8px; color: ${token("text")}; background: ${token("surface")}; border: 1px solid ${token("border-control")}; border-radius: ${token("radius")}; font: 13px/1.4 ${token("font-code")}; }
@@ -275,7 +275,6 @@ window.__glpythonMount = (args, send) => {
 .glpython-embed .glp-file pre { max-height: 320px; overflow: auto; margin: 6px 0; padding: 12px; color: ${token("text")}; background: ${token("surface")}; border: 1px solid ${token("border")}; border-radius: ${token("radius")}; font: 15px/1.6 ${token("font-code")}; }
 .glpython-embed iframe { display: block; width: 100%; height: 220px; border: 0; border-top: 1px solid ${token("border")}; border-radius: 0; background: ${token("bg")}; }
 .glpython-embed--visual iframe { border-top: 0; }
-.glpython-embed--large .glp-button { padding: 10px 14px; font-size: 16px; }
 `
     document.head.prepend(style)
   }
@@ -327,6 +326,9 @@ window.__glpythonMount = (args, send) => {
   // ▶ Run is ■ Stop.
   let stopSupported = false
   let pythonBusy = false
+  // Whether the embed visualizes (glpython:resize): then the dev channel's
+  // badge is in its step bar, not in the ▶ row.
+  let embedVisualizing = false
   // The newest protocol version both understand.
   const embedVersion = () => stopSupported ? protocolVersion : testsSupported ? 3 : filesSupported ? 2 : 1
   let runtimeReady = false
@@ -412,8 +414,9 @@ window.__glpythonMount = (args, send) => {
   }))
 
   // Lists the libraries below the buttons: each can be opened read-only, and
-  // one that failed to load says so.
-  const showLibraries = (list) => {
+  // one that failed to load says so. With "hidelibraries" only the latter.
+  const showLibraries = (loaded) => {
+    const list = hideLibraries ? loaded.filter((library) => library.failure) : loaded
     const container = document.getElementById(`glpython-files-${sessionId}`)
     if (!container || container.dataset.filled === "true" || list.length === 0) return
     container.dataset.filled = "true"
@@ -748,11 +751,14 @@ window.__glpythonMount = (args, send) => {
       pythonBusy = message.busy === true
       attach()
     } else if (message.type === "glpython:resize" && Number.isFinite(message.height)) {
-      // Since glpython-editor v0.1.35 it also says whether it visualizes
-      // (for "large"); an older embed visualizes only as "visual".
+      // Its "visualizing" only moves the dev channel's badge (P66); the
+      // height follows the same rule either way.
       contentHeight = message.height
-      if (typeof message.visualizing === "boolean") visualizing = message.visualizing
       fitHeight()
+      if (embedVisualizing !== (message.visualizing === true)) {
+        embedVisualizing = message.visualizing === true
+        fitChannelBadge()
+      }
     } else if (message.type === "glpython:error") {
       showError(message.message || strings.embedError)
     }
@@ -766,6 +772,24 @@ window.__glpythonMount = (args, send) => {
     const value = shown ? display : "none"
     if (element.style.display !== value) element.style.display = value
   }
+
+  // The dev channel's badge in a block that runs (P66): at the left end of
+  // its ▶ row, a row the block has anyway, until the embed visualizes (then
+  // the embed shows it in its step bar). A visualization-only block has no ▶
+  // row; its badge is the embed's. Left out where the row would wrap with it,
+  // so the block is exactly as tall as on the live channel.
+  const fitChannelBadge = () => {
+    const badge = document.getElementById(`glpython-channel-${sessionId}`)
+    const row = badge?.parentElement
+    if (!badge || !row) return
+    const wanted = channel === "dev" && mode !== "visual" && !embedVisualizing
+    setShown(badge, false)
+    if (!wanted) return
+    const without = row.offsetHeight
+    setShown(badge, true)
+    if (row.offsetHeight > without) setShown(badge, false)
+  }
+  const channelRowObserver = new ResizeObserver(() => fitChannelBadge())
 
   // LiaScript's own run button (</>) of the block. It stays hidden: the macro's
   // ▶, «Tests» and «Visualisieren» click it, so LiaScript stores the block -
@@ -853,7 +877,6 @@ window.__glpythonMount = (args, send) => {
       // The new iframe says "ready" again, and reports its height.
       textWait?.stop()
       contentHeight = null
-      visualizing = mode === "visual"
     }
     frame = nextFrame
     error = document.getElementById(`glpython-error-${sessionId}`)
@@ -867,16 +890,12 @@ window.__glpythonMount = (args, send) => {
       block.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING
     ) ?? null
     if (codeBlock && codeBlock.hidden !== (mode === "visual")) codeBlock.hidden = mode === "visual"
-    frame.parentElement?.classList.toggle("glpython-embed--large", large)
     setShown(liaScriptRunButton(), false)
-    // The dev channel's badge, at the top of the block next to the buttons;
-    // a visualization-only block has no buttons, so there the row shows only
-    // the badge.
-    const channelBadge = document.getElementById(`glpython-channel-${sessionId}`)
-    if (channelBadge && channelBadge.title !== strings.devChannel) channelBadge.title = strings.devChannel
-    setShown(channelBadge, channel === "dev")
-    controls?.classList.toggle("glp-buttons--badge-only", mode === "visual" && channel === "dev")
-    setShown(controls, mode !== "visual" || channel === "dev", "flex")
+    // A visualization-only block has no buttons. The dev channel's badge is
+    // in the embed's step bar while it visualizes (P63), else at the left end
+    // of the ▶ row (fitChannelBadge, P66) - never a row of its own, so a dev
+    // block is as tall as a live one.
+    setShown(controls, mode !== "visual", "flex")
     // Only when it differs: attach() runs on every DOM change (see the
     // MutationObserver below), and replacing a text is such a change.
     if (resetButton && resetButton.textContent !== strings.reset) resetButton.textContent = strings.reset
@@ -905,6 +924,8 @@ window.__glpythonMount = (args, send) => {
     updateIdeButton()
     textWait?.check()
     libraries.then(showLibraries)
+    fitChannelBadge()
+    if (controls) channelRowObserver.observe(controls)
     if (frame.dataset.glpythonInitialized === "true") return
     frame.dataset.glpythonInitialized = "true"
     fitHeight()
@@ -913,8 +934,6 @@ window.__glpythonMount = (args, send) => {
     if (visualizerMode) query.set("visualizer", visualizerMode)
     if (featuresOption) query.set("features", requestedFeatures.filter((name) => featureNames.includes(name)).join(","))
     if (large) query.set("size", "large")
-    // The block shows the dev channel's badge itself, so the embed doesn't.
-    if (channel === "dev") query.set("channelBadge", "host")
     frame.src = `${embedUrl}?${query}`
   }
 
@@ -962,6 +981,7 @@ window.__glpythonPending = []
 
 <div class="glpython-embed glpython-embed--@1">
   <div id="glpython-controls-@0" class="glp-buttons">
+    <span id="glpython-channel-@0" class="glp-channel-badge" style="display:none">dev</span>
     <span id="glpython-run-split-@0" class="glp-run-split" style="display:none">
       <button id="glpython-run-@0" class="glp-button glp-button--primary glp-button--run" type="button" disabled>▶ Run</button>
       <button id="glpython-run-menu-@0" class="glp-button glp-button--run-menu" type="button" disabled aria-haspopup="true" aria-expanded="false" style="display:none">▾</button>
@@ -976,7 +996,6 @@ window.__glpythonPending = []
       <span id="glpython-ide-list-@0" class="glp-run-list" role="menu" hidden></span>
     </span>
     <span id="glpython-ide-status-@0" class="glp-ide-status" role="status"></span>
-    <span id="glpython-channel-@0" class="glp-channel-badge" style="display:none">DEV</span>
   </div>
   <p id="glpython-ide-link-@0" class="glp-ide-link" hidden><label><span></span><input type="text" readonly></label></p>
   <p id="glpython-ide-note-@0" class="glp-ide-note" role="status" hidden></p>
@@ -1140,6 +1159,17 @@ print(rgb_to_hsv(1, 0, 0))
 Such a library is listed below the buttons with **View file** to read it. If it
 can't be loaded (e.g. HTTP 404, no network, or a server without CORS), the list
 says so and the program runs without it, so Python reports the missing module.
+With `hidelibraries` the block doesn't list its libraries (they load and work
+as always), e.g. where a course doesn't want them read or needs the room; one
+that fails to load is still listed, with why:
+
+```text
+@GLPython.visual(hidelibraries https://…/parser.py)
+```
+
+In the visualizer's footer, a function imported from a library reads
+«Funktion · parser.py», and its box shows its signature and its docstring
+without the examples, not its code.
 Raw GitHub URLs work; URLs must not contain parentheses.
 
 ## Tests
@@ -1295,9 +1325,8 @@ expression's tree; any other call keeps its box below the tree, which says why
 also in «Ersetzung»). Labels are Python's (`+`, `quadrat`, `[ ]`), with no
 parentheses. Without `tree` there's no «Baum» button. To start a block in
 «Baum», pass `tree` too: `@GLPython.visual(tree features=visualize,tree)`.
-`large` makes the code 20px (line height 1.6) and, while visualizing, the
-block as tall as it may be (see below), e.g. for the projector in presentation
-mode.
+`large` makes the code 20px (line height 1.6), e.g. for the projector in
+presentation mode. It doesn't change the block's height or its buttons.
 
 The block is as tall as its content, but at most 80% of the height the course
 shows right now (LiaScript's content area, without its top bar; in fullscreen,
@@ -1359,8 +1388,11 @@ execution, visualization, and turtle graphics remain available.
 glpython has a test version next to the live one: the embed at
 <https://glpython-edu.github.io/glpython-editor/dev/index.html> and the IDE at
 <https://glpython-edu.github.io/dev/>, each built from its repo's `dev`
-branch. Both show a «DEV» badge (in a course at the top of the block, next to
-its buttons; in the IDE in its bar). A course keeps loading the live embed; a
+branch. Both show a «DEV» badge. In a course it sits at the left end of a row the
+block has anyway: in the embed's step bar while it visualizes, else (a block
+that runs, a turtle block) in the block's ▶ row, never in both. Where that row
+has no room for it (it would wrap), it is left out: never a row of its own, so
+a block is as tall as for learners. In the IDE it is in its bar. A course keeps loading the live embed; a
 browser loads the dev embed in every course instead, and its IDE links
 («In der IDE öffnen», «IDE-Link kopieren») open the dev IDE, once the flag is
 set for the course's origin (e.g. liascript.github.io):
@@ -1373,7 +1405,7 @@ set for the course's origin (e.g. liascript.github.io):
   `localStorage.removeItem("glpythonChannel")` in the console, then reload.
 
 The flag only lives in that browser, so learners never get the dev channel,
-and a link copied with the flag set points to the dev IDE (the badge says
+and a link copied with the flag set points to the dev IDE (its badge says
 so) - don't share it. To try a change to the macro itself, a test course
 imports `https://raw.githubusercontent.com/glpython-edu/glpython-liascript/dev/README.md`
 instead of `main`; with the flag it also loads the dev embed.
@@ -1415,8 +1447,10 @@ the values are named constants just above it, each with a comment.
 - **The embed reports** `glpython:resize` with `height`, its *natural* height
   (what its content needs: the code area and the console at their content's
   height, not the iframe's current height, so a clipped embed doesn't stay
-  small; `naturalHeight` in glpython-editor's `src/embed/App.tsx`), and
-  `visualizing`. Until it is ready it reports its loading state, 160px.
+  small; `naturalHeight` in glpython-editor's `src/embed/App.tsx`); while
+  visualizing, that of its tallest step. It also says whether it visualizes
+  (`visualizing`), which the macro doesn't use. Until it is ready it reports
+  its loading state, 160px.
 - **The rule:** the iframe is the natural height, but
   - at most `visibleShare` (80%) of the visible height, minus the block's own
     rows above the iframe (buttons, libraries, notes), so that the whole block
@@ -1427,8 +1461,8 @@ the values are named constants just above it, each with a comment.
     `minVisualFrameHeight` (190px: about what a short visualization ends up
     with, so the block doesn't shrink to the loading state and grow again
     while its trace comes). Neither minimum goes above the maximum.
-- **`large`:** while visualizing, the iframe takes the maximum, and the embed
-  fills it (the code area grows); otherwise as without `large`.
+- **`large`** has no height of its own: a `large` block follows the same rule
+  (a short demo is as tall as its tallest step, a long one stops at 80%).
 - **Inside the embed** (glpython-editor's `src/embed/style.css`): when the
   iframe is shorter than the content, only the visualizer's code area (while
   visualizing) and the console (otherwise) give way, down to their own
@@ -1439,8 +1473,8 @@ the values are named constants just above it, each with a comment.
   constant; it is the bars, the 140px code area and the console of a typical
   block, and it moves with them.
 - **Checks:** `npm run check:ready` («the embed's height» cases) checks the
-  80%, a short content, a taller visible area, `large`, both minimums and the
-  half-height fallback, with a stub embed that reports the heights it is given.
+  80%, a short content, a taller visible area, `large` (as the rule, and its
+  buttons as without it), both minimums and the half-height fallback, with a stub embed that reports the heights it is given.
 
 ## Lizenz / License
 
