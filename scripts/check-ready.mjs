@@ -275,14 +275,13 @@ try {
     await check(label, async () => {
       const src = new URL(await channelTab.locator('#glpython-frame-files').getAttribute('src'))
       assert.equal(src.origin + src.pathname, dev ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`, 'the embed')
-      assert.equal(src.searchParams.get('channelBadge'), dev ? 'host' : null, 'the embed leaves the badge to the block')
-      // The badge at the top of the block, next to its buttons; a
-      // visualization-only block ("late") shows a row with only the badge.
-      for (const id of ['files', 'late']) {
-        assert.equal(await channelTab.locator(`#glpython-channel-${id}`).isVisible(), dev, `the badge of block ${id}`)
-        assert.equal(await channelTab.locator(`#glpython-controls-${id}`).isVisible(), id === 'files' || dev, `the button row of block ${id}`)
-      }
-      if (dev) assert.equal(await channelTab.locator('#glpython-reset-late').isVisible(), false, 'no buttons in a visualization-only block')
+      // The badge is the embed's own, in its visualizer's bar (P63): the
+      // block shows none and doesn't ask the embed to leave it out, and a
+      // visualization-only block ("late") has no button row, dev or not.
+      assert.equal(src.searchParams.get('channelBadge'), null, 'the embed shows its own badge')
+      assert.equal(await channelTab.locator('.glp-channel-badge, [id^="glpython-channel-"]').count(), 0, 'no badge in the block')
+      assert.equal(await channelTab.locator('#glpython-controls-files').isVisible(), true, 'the button row of an eval block')
+      assert.equal(await channelTab.locator('#glpython-controls-late').isVisible(), false, 'no button row in a visualization-only block')
       await channelTab.waitForFunction(() => document.querySelector('#glpython-ide-files')?.disabled === false, null, { timeout: 10000 })
       const link = await copiedLink(channelTab, channelTab.locator('#glpython-ide-files'))
       assert.equal(link.origin + link.pathname, dev ? `${embedOrigin}/dev/` : `${embedOrigin}/`, 'the IDE link')
@@ -441,6 +440,50 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
       assert.ok(!broken.hidden && broken.rows.length === 1 && broken.rows[0][0] === 'fehlt.py' && broken.rows[0][1].includes('404'), `a library that failed: still listed (${JSON.stringify(broken)})`)
     })
     await libraryContext.close()
+  }
+
+  // P63: a block is exactly as tall in the dev channel as in the live one -
+  // visualization-only or not, with its library listed or "hidelibraries".
+  {
+    const parserUrl = `${courseOrigin}/lib/parser.py`
+    const heightBlocks = [['visual-lib', 'visual', [parserUrl]], ['visual-quiet', 'visual', [`hidelibraries ${parserUrl}`]], ['visual-plain', 'visual', []], ['eval-lib', 'eval', [parserUrl]], ['eval-quiet', 'eval', [`hidelibraries ${parserUrl}`]]]
+    const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+${heightBlocks.map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+  <div class="lia-code--block"><lia-editor data-text="from parser import parse" data-fill="start"></lia-editor></div>
+  ${template.replaceAll('@0', id).replaceAll('@1', mode)}
+</div>`).join('\n')}
+${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
+</body></html>`
+    const measure = async (flag) => {
+      const context = await browser.newContext({ viewport: { width: 1000, height: 3000 } })
+      await context.route('**/*', (route) => {
+        const url = new URL(route.request().url())
+        if (url.href === parserUrl) return route.fulfill({ contentType: 'text/plain', body: 'def parse(text):\n    return text\n' })
+        if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: heightPage })
+        if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+        return route.abort()
+      })
+      const tab = await context.newPage()
+      tab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+      await tab.goto(`${courseOrigin}/#glpython=${flag}`)
+      await tab.waitForFunction((count) => Object.keys(window.readyAt).length === count, heightBlocks.length, { timeout: 10000 })
+      await tab.waitForFunction(() => document.querySelector('#glpython-files-visual-lib .glp-file') !== null, null, { timeout: 10000 })
+      await tab.waitForTimeout(300)
+      const heights = await tab.evaluate((ids) => Object.fromEntries(ids.map((id) => {
+        const frame = document.querySelector(`#glpython-frame-${id}`)
+        const block = frame.closest('.glpython-embed')
+        return [id, { block: block.getBoundingClientRect().height, frameTop: frame.getBoundingClientRect().top - block.getBoundingClientRect().top }]
+      })), heightBlocks.map(([id]) => id))
+      const src = new URL(await tab.locator('#glpython-frame-visual-lib').getAttribute('src'))
+      await context.close()
+      return { heights, embed: src.pathname }
+    }
+    await check('a dev block is as tall as a live one (with and without "hidelibraries")', async () => {
+      const live = await measure('live')
+      const dev = await measure('dev')
+      assert.equal(dev.embed, '/glpython-editor/dev/index.html', 'the dev embed')
+      assert.deepEqual(dev.heights, live.heights, 'the heights')
+    })
   }
 } finally {
   await browser.close()

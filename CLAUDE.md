@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Visible changes and screen space (read on every task)
+
+**Visible changes: only what the prompt asks for.** Everything learners or teachers see or experience – layout, text and labels, markers, colours, icons, new elements, where something appears, motion and scrolling – changes only as far as the prompt asks for it.
+
+**Screen space is the scarcest resource** (iPads, projector at font size 1.5). Never add a row, bar, badge, banner, margin or other element that takes space – not even for development aids – unless the prompt asks for exactly that. Anything that must be shown goes into a row that exists anyway, or it isn't shown. If a visible addition or an extension looks useful (e.g. showing something in more places than asked, a new label, an extra element, a different wording), **don't build it: propose it in the report and wait for the instructor's decision.** Where a prompt leaves a visible choice to you («your choice»), the choice covers only the item named there, in the place named there. When in doubt whether something is visible, treat it as visible and ask.
+
 ## What this is
 
 The LiaScript macro that embeds glpython in courses. `README.md` is both the documentation and the macro itself: its header comment defines `@GLPython.eval`, `@GLPython.turtle` and `@GLPython.visual` and holds the session logic in `@onload` (`window.__glpythonMount`, run once per course) plus two `<script>` blocks (the per-run block and a short `run-once` block that only passes the block's arguments to `__glpythonMount`). Keep the code in `@onload`, not in the macro: LiaScript expands a macro into every slide that uses it, and long expansions break slides in Chrome (`Regular expression too large`, when a slide with a choice quiz is opened directly; cause: the column LiaScript's parser computes after a macro expansion). Courses import it from `main`:
