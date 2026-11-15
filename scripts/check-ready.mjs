@@ -394,6 +394,54 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
     })
     await heightContext.close()
   }
+
+  // "hidelibraries" (P62): the block doesn't list its library below the
+  // buttons, but loads it and sends it with the program as always; one that
+  // fails to load is still listed, with why.
+  {
+    const parserUrl = `${courseOrigin}/lib/parser.py`
+    const parserSource = 'def parse(text):\n    return text\n'
+    const libraryBlocks = [['shown', [parserUrl]], ['quiet', [`hidelibraries ${parserUrl}`]], ['broken', [`hidelibraries ${courseOrigin}/lib/fehlt.py`]]]
+    const libraryPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+${libraryBlocks.map(([id, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+  <div class="lia-code--block"><lia-editor data-text="from parser import parse" data-fill="start"></lia-editor></div>
+  ${template.replaceAll('@0', id).replaceAll('@1', 'eval')}
+</div>`).join('\n')}
+${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
+</body></html>`
+    const libraryContext = await browser.newContext({ viewport: { width: 1000, height: 2000 } })
+    await libraryContext.route('**/*', (route) => {
+      const url = new URL(route.request().url())
+      if (url.href === parserUrl) return route.fulfill({ contentType: 'text/plain', body: parserSource })
+      if (url.origin === courseOrigin && url.pathname.startsWith('/lib/')) return route.fulfill({ status: 404, body: '' })
+      if (url.origin === courseOrigin) return route.fulfill({ contentType: 'text/html', body: libraryPage })
+      if (url.origin === embedOrigin) return route.fulfill({ contentType: 'text/html', body: stub })
+      return route.abort()
+    })
+    const libraryTab = await libraryContext.newPage()
+    libraryTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
+    await libraryTab.goto(`${courseOrigin}/`)
+    await libraryTab.waitForFunction(() => Object.keys(window.readyAt).length === 3, null, { timeout: 10000 })
+    const rows = (id) => libraryTab.locator(`#glpython-files-${id}`).evaluate((container) => ({ hidden: container.hidden, rows: [...container.querySelectorAll('.glp-file')].map((row) => [row.querySelector('code').textContent, row.querySelector('button')?.textContent ?? row.querySelector('.glpython-error')?.textContent.trim()]) }))
+    const sentFiles = async (id) => {
+      await libraryTab.locator(`#glpython-run-${id}`).click()
+      const embed = libraryTab.frameLocator(`#glpython-frame-${id}`).locator('html')
+      await embed.evaluate(() => new Promise((resolve) => { const look = () => window.received.some((message) => message.type === 'glpython:run') ? resolve() : setTimeout(look, 50); look() }))
+      const run = (await embed.evaluate(() => window.received)).filter((message) => message.type === 'glpython:run').at(-1)
+      return Object.fromEntries(Object.values(run.files).map((file) => [file.path, file.source]))
+    }
+    await check('"hidelibraries": the library loads, the block doesn\'t list it', async () => {
+      await libraryTab.waitForFunction(() => document.querySelector('#glpython-files-shown .glp-file') !== null, null, { timeout: 10000 })
+      assert.deepEqual(await rows('shown'), { hidden: false, rows: [['parser.py', 'View file']] }, 'without the option')
+      assert.equal((await sentFiles('shown'))['parser.py'], parserSource, 'without the option: sent')
+      assert.equal((await sentFiles('quiet'))['parser.py'], parserSource, 'with the option: still sent')
+      assert.deepEqual(await rows('quiet'), { hidden: true, rows: [] }, 'with the option: no row')
+      await libraryTab.waitForFunction(() => document.querySelector('#glpython-files-broken .glp-file') !== null, null, { timeout: 20000 })
+      const broken = await rows('broken')
+      assert.ok(!broken.hidden && broken.rows.length === 1 && broken.rows[0][0] === 'fehlt.py' && broken.rows[0][1].includes('404'), `a library that failed: still listed (${JSON.stringify(broken)})`)
+    })
+    await libraryContext.close()
+  }
 } finally {
   await browser.close()
 }

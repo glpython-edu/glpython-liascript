@@ -63,8 +63,9 @@ window.__glpythonMount = (args, send) => {
   const [sessionId, mode, ...optionArguments] = args
   // Optional per block, separated by spaces in any order: "box",
   // "substitution" or "tree" presets the visualizer's mode ("tree" only with
-  // the feature "tree"), and URLs of shared Python
-  // files to load as libraries, e.g. @GLPython.eval(box https://…/parser.py).
+  // the feature "tree"), URLs of shared Python files to load as libraries,
+  // e.g. @GLPython.eval(box https://…/parser.py), and "hidelibraries" (not
+  // listed below the buttons).
   // LiaScript splits macro arguments at commas, so "features=run,repl" arrives
   // as several arguments: they are joined back together here. Arguments that
   // weren't given stay literal ("@3") and are left out.
@@ -88,6 +89,10 @@ window.__glpythonMount = (args, send) => {
   const unknownFeatures = requestedFeatures.filter((name) => !featureNames.includes(name))
   const hasFeature = (name) => requestedFeatures.includes(name)
   const large = options.includes("large")
+  // "hidelibraries": the libraries load as always, but the block doesn't
+  // list them below its buttons (P62), e.g. where a course doesn't want the
+  // library read; one that failed to load is still listed, with why.
+  const hideLibraries = options.includes("hidelibraries")
   // The embed's height: the height its content needs (its glpython:resize),
   // at most 80% of the height the course shows right now - that of the
   // element that scrolls the course's content (LiaScript's
@@ -410,8 +415,9 @@ window.__glpythonMount = (args, send) => {
   }))
 
   // Lists the libraries below the buttons: each can be opened read-only, and
-  // one that failed to load says so.
-  const showLibraries = (list) => {
+  // one that failed to load says so. With "hidelibraries" only the latter.
+  const showLibraries = (loaded) => {
+    const list = hideLibraries ? loaded.filter((library) => library.failure) : loaded
     const container = document.getElementById(`glpython-files-${sessionId}`)
     if (!container || container.dataset.filled === "true" || list.length === 0) return
     container.dataset.filled = "true"
@@ -1134,6 +1140,17 @@ print(rgb_to_hsv(1, 0, 0))
 Such a library is listed below the buttons with **View file** to read it. If it
 can't be loaded (e.g. HTTP 404, no network, or a server without CORS), the list
 says so and the program runs without it, so Python reports the missing module.
+With `hidelibraries` the block doesn't list its libraries (they load and work
+as always), e.g. where a course doesn't want them read or needs the room; one
+that fails to load is still listed, with why:
+
+```text
+@GLPython.visual(hidelibraries https://…/parser.py)
+```
+
+In the visualizer's footer, a function imported from a library reads
+«Funktion · parser.py», and its box shows its signature and its docstring
+without the examples, not its code.
 Raw GitHub URLs work; URLs must not contain parentheses.
 
 ## Tests
