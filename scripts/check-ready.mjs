@@ -294,12 +294,12 @@ try {
   // The embed's height (P53b): what its content needs (glpython:resize), at
   // most 80% of the visible height of the element that scrolls the course
   // (here a stand-in for LiaScript's .lia-slide__container) with the
-  // block's buttons; measured anew when that element changes size. With
-  // "large", while visualizing, that maximum.
+  // block's buttons; measured anew when that element changes size. "large"
+  // (P60) follows the same rule, with the same buttons.
   {
     const heightPage = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <div class="lia-slide__container" style="height:600px;overflow:auto">
-${[['tall', 'eval', []], ['big', 'eval', ['large']], ['vis', 'visual', []]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
+${[['tall', 'eval', []], ['big', 'eval', ['large']], ['vis', 'visual', []], ['demo', 'visual', ['large']]].map(([id, mode, options]) => `<div class="lia-slide__content" data-block="${id}" data-options="${escape(JSON.stringify(options))}">
   <div class="lia-code--block"><lia-editor data-text="x = 1" data-fill="start"></lia-editor></div>
   ${template.replaceAll('@0', id).replaceAll('@1', mode)}
   <p>Text</p>
@@ -317,7 +317,7 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
     const heightTab = await heightContext.newPage()
     heightTab.on('pageerror', (error) => failures.push(`page error: ${error.message}`))
     await heightTab.goto(`${courseOrigin}/`)
-    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 3, null, { timeout: 10000 })
+    await heightTab.waitForFunction(() => Object.keys(window.readyAt).length === 4, null, { timeout: 10000 })
     const report = (id, height, visualizing) => heightTab.frameLocator(`#glpython-frame-${id}`).locator('html').evaluate((html, [height, visualizing, origin]) => parent.postMessage({ type: 'glpython:resize', version: 4, height, visualizing }, origin), [height, visualizing, courseOrigin])
     const sizes = (id) => heightTab.evaluate((id) => ({ frame: document.querySelector(`#glpython-frame-${id}`).clientHeight, block: document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed').getBoundingClientRect().height }), id)
     const settle = () => heightTab.waitForTimeout(150)
@@ -337,14 +337,34 @@ ${page.slice(page.indexOf('<script>'), page.lastIndexOf('</body>'))}
       assert.ok(Math.abs(size.block - 720) <= 2, `a taller visible area: 80% of 900px (${JSON.stringify(size)})`)
       await heightTab.evaluate(() => { document.querySelector('.lia-slide__container').style.height = '600px' })
     })
-    await check('the embed\'s height: "large" while visualizing', async () => {
+    await check('the embed\'s height: "large" has no height of its own', async () => {
       await report('big', 300, false)
       await settle()
       assert.equal((await sizes('big')).frame, 300, 'not visualizing: its own height')
       await report('big', 300, true)
       await settle()
-      const size = await sizes('big')
-      assert.ok(Math.abs(size.block - 480) <= 2, `visualizing: 80% of 600px (${JSON.stringify(size)})`)
+      assert.equal((await sizes('big')).frame, 300, 'visualizing: still its own height')
+      // A short demo (a visualization-only "large" block) is as tall as its
+      // tallest step, which the embed reports; a long one stops at 80%.
+      assert.equal((await sizes('demo')).frame, 190, 'a short demo before its first report: the minimum')
+      await report('demo', 260, true)
+      await settle()
+      assert.equal((await sizes('demo')).frame, 260, 'a short demo: its tallest step, not 80%')
+      await report('demo', 2000, true)
+      await settle()
+      const size = await sizes('demo')
+      assert.ok(Math.abs(size.block - 480) <= 2, `a long demo: 80% of 600px (${JSON.stringify(size)})`)
+      await report('demo', 260, true)
+    })
+    await check('the embed\'s height: "large" keeps the buttons as without it', async () => {
+      const look = (id) => heightTab.evaluate((id) => {
+        const block = document.querySelector(`#glpython-frame-${id}`).closest('.glpython-embed')
+        return { classes: [...block.querySelectorAll('[class*="large"]')].length + (block.className.includes('large') ? 1 : 0), buttons: [...block.querySelectorAll('.glp-button')].map((button) => { const style = getComputedStyle(button); return `${button.id.replace(/-[^-]+$/, '')} ${style.padding} ${style.fontSize}` }) }
+      }, id)
+      const [big, tall] = [await look('big'), await look('tall')]
+      assert.equal(big.classes, 0, 'no class for "large" in the block')
+      assert.ok(big.buttons.length > 0, 'the block has buttons')
+      assert.deepEqual(big.buttons, tall.buttons, 'the same buttons, padding and font size')
     })
     // The minimums (minFrameHeight, minVisualFrameHeight) and the least
     // share (leastVisibleShare) of the README's «Height».

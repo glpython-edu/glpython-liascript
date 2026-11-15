@@ -79,8 +79,9 @@ window.__glpythonMount = (args, send) => {
   // profiles from it); without it, everything shows - except "coverage"
   // (after Tests, the lines no example executed), "listtree" (lists such
   // as ["+", 2, 3] also drawn as a tree) and "tree" (the visualizer's mode
-  // «Baum»), which a course switches on explicitly. "large" enlarges the code and the visualizer, e.g. for a demo
-  // on the projector.
+  // «Baum»), which a course switches on explicitly. "large" makes the code
+  // bigger (20px, line height 1.6), e.g. for a demo on the projector; it has
+  // no height of its own.
   const featureNames = ["run", "tests", "visualize", "reset", "repl", "export", "ide", "coverage", "listtree", "tree"]
   const featuresOption = options.find((option) => option.startsWith("features="))
   const requestedFeatures = featuresOption ? featuresOption.slice("features=".length).split(",").map((name) => name.trim()).filter(Boolean) : featureNames.filter((name) => name !== "coverage" && name !== "listtree" && name !== "tree")
@@ -95,10 +96,9 @@ window.__glpythonMount = (args, send) => {
   // changes with the window, fullscreen, an iPad's rotation, the
   // presentation mode and LiaScript's top bar, so it is measured anew on
   // every change (fitHeight). A taller step scrolls the visualizer's code
-  // inside the embed, between its step bar and its footer. "large": while
-  // visualizing, the embed is as tall as it may be. A visualization-only
-  // block starts at the height a short visualization ends up with (with
-  // "large": its maximum), and never gets smaller: until its trace arrives,
+  // inside the embed, between its step bar and its footer. A
+  // visualization-only block starts at the height a short visualization
+  // ends up with, and never gets smaller: until its trace arrives,
   // the embed reports only its loading state (160px), so the iframe would
   // first shrink and then grow again - in a course e.g. right when a quiz's
   // solution opens. The rule as a whole: «Height» in this README.
@@ -118,7 +118,6 @@ window.__glpythonMount = (args, send) => {
   //   to the loading state and grow again while its trace comes.
   const minVisualFrameHeight = 190
   let contentHeight = null
-  let visualizing = mode === "visual"
   let observedScroller
   const heightObserver = new ResizeObserver(() => fitHeight())
   const scrollingAncestor = (element) => {
@@ -146,7 +145,7 @@ window.__glpythonMount = (args, send) => {
     // would leave the iframe less than half of the visible height.
     const rows = box.getBoundingClientRect().height - frame.getBoundingClientRect().height
     const maxHeight = Math.round(Math.max(visible * visibleShare - rows, visible * leastVisibleShare))
-    const minHeight = Math.min(maxHeight, large && visualizing ? maxHeight : mode === "visual" ? minVisualFrameHeight : minFrameHeight)
+    const minHeight = Math.min(maxHeight, mode === "visual" ? minVisualFrameHeight : minFrameHeight)
     const height = `${Math.max(minHeight, Math.min(contentHeight ?? minHeight, maxHeight))}px`
     if (frame.style.height !== height) frame.style.height = height
   }
@@ -275,7 +274,6 @@ window.__glpythonMount = (args, send) => {
 .glpython-embed .glp-file pre { max-height: 320px; overflow: auto; margin: 6px 0; padding: 12px; color: ${token("text")}; background: ${token("surface")}; border: 1px solid ${token("border")}; border-radius: ${token("radius")}; font: 15px/1.6 ${token("font-code")}; }
 .glpython-embed iframe { display: block; width: 100%; height: 220px; border: 0; border-top: 1px solid ${token("border")}; border-radius: 0; background: ${token("bg")}; }
 .glpython-embed--visual iframe { border-top: 0; }
-.glpython-embed--large .glp-button { padding: 10px 14px; font-size: 16px; }
 `
     document.head.prepend(style)
   }
@@ -748,10 +746,8 @@ window.__glpythonMount = (args, send) => {
       pythonBusy = message.busy === true
       attach()
     } else if (message.type === "glpython:resize" && Number.isFinite(message.height)) {
-      // Since glpython-editor v0.1.35 it also says whether it visualizes
-      // (for "large"); an older embed visualizes only as "visual".
+      // Its "visualizing" isn't needed: every block follows the same rule.
       contentHeight = message.height
-      if (typeof message.visualizing === "boolean") visualizing = message.visualizing
       fitHeight()
     } else if (message.type === "glpython:error") {
       showError(message.message || strings.embedError)
@@ -853,7 +849,6 @@ window.__glpythonMount = (args, send) => {
       // The new iframe says "ready" again, and reports its height.
       textWait?.stop()
       contentHeight = null
-      visualizing = mode === "visual"
     }
     frame = nextFrame
     error = document.getElementById(`glpython-error-${sessionId}`)
@@ -867,7 +862,6 @@ window.__glpythonMount = (args, send) => {
       block.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING
     ) ?? null
     if (codeBlock && codeBlock.hidden !== (mode === "visual")) codeBlock.hidden = mode === "visual"
-    frame.parentElement?.classList.toggle("glpython-embed--large", large)
     setShown(liaScriptRunButton(), false)
     // The dev channel's badge, at the top of the block next to the buttons;
     // a visualization-only block has no buttons, so there the row shows only
@@ -1295,9 +1289,8 @@ expression's tree; any other call keeps its box below the tree, which says why
 also in «Ersetzung»). Labels are Python's (`+`, `quadrat`, `[ ]`), with no
 parentheses. Without `tree` there's no «Baum» button. To start a block in
 «Baum», pass `tree` too: `@GLPython.visual(tree features=visualize,tree)`.
-`large` makes the code 20px (line height 1.6) and, while visualizing, the
-block as tall as it may be (see below), e.g. for the projector in presentation
-mode.
+`large` makes the code 20px (line height 1.6), e.g. for the projector in
+presentation mode. It doesn't change the block's height or its buttons.
 
 The block is as tall as its content, but at most 80% of the height the course
 shows right now (LiaScript's content area, without its top bar; in fullscreen,
@@ -1415,8 +1408,10 @@ the values are named constants just above it, each with a comment.
 - **The embed reports** `glpython:resize` with `height`, its *natural* height
   (what its content needs: the code area and the console at their content's
   height, not the iframe's current height, so a clipped embed doesn't stay
-  small; `naturalHeight` in glpython-editor's `src/embed/App.tsx`), and
-  `visualizing`. Until it is ready it reports its loading state, 160px.
+  small; `naturalHeight` in glpython-editor's `src/embed/App.tsx`); while
+  visualizing, that of its tallest step. It also says whether it visualizes
+  (`visualizing`), which the macro doesn't use. Until it is ready it reports
+  its loading state, 160px.
 - **The rule:** the iframe is the natural height, but
   - at most `visibleShare` (80%) of the visible height, minus the block's own
     rows above the iframe (buttons, libraries, notes), so that the whole block
@@ -1427,8 +1422,8 @@ the values are named constants just above it, each with a comment.
     `minVisualFrameHeight` (190px: about what a short visualization ends up
     with, so the block doesn't shrink to the loading state and grow again
     while its trace comes). Neither minimum goes above the maximum.
-- **`large`:** while visualizing, the iframe takes the maximum, and the embed
-  fills it (the code area grows); otherwise as without `large`.
+- **`large`** has no height of its own: a `large` block follows the same rule
+  (a short demo is as tall as its tallest step, a long one stops at 80%).
 - **Inside the embed** (glpython-editor's `src/embed/style.css`): when the
   iframe is shorter than the content, only the visualizer's code area (while
   visualizing) and the console (otherwise) give way, down to their own
@@ -1439,8 +1434,8 @@ the values are named constants just above it, each with a comment.
   constant; it is the bars, the 140px code area and the console of a typical
   block, and it moves with them.
 - **Checks:** `npm run check:ready` («the embed's height» cases) checks the
-  80%, a short content, a taller visible area, `large`, both minimums and the
-  half-height fallback, with a stub embed that reports the heights it is given.
+  80%, a short content, a taller visible area, `large` (as the rule, and its
+  buttons as without it), both minimums and the half-height fallback, with a stub embed that reports the heights it is given.
 
 ## Lizenz / License
 
