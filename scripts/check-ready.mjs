@@ -25,13 +25,14 @@ const textTimeout = 2000
 
 // The blocks: an id, the macro's mode, the editors' texts, and when each
 // editor gets its text - "start" (before "ready"), a number of milliseconds
-// after "ready", or never (null).
+// after "ready", never (null), or when the check lets it go ("held", see
+// below).
 const blocks = [
   { id: 'late', mode: 'visual', editors: [{ text: 'x = 1\nprint(x)', fill: 300 }] },
   { id: 'early', mode: 'visual', editors: [{ text: 'y = 2', fill: 'start' }] },
   { id: 'empty', mode: 'visual', editors: [{ text: '', fill: null }] },
   { id: 'files', mode: 'eval', editors: [{ text: '', fill: 'start' }, { text: 'import datei1\nz = 3', fill: 'start' }] },
-  { id: 'click', mode: 'eval', editors: [{ text: 'w = 4', fill: 1000 }] },
+  { id: 'click', mode: 'eval', editors: [{ text: 'w = 4', fill: 'held' }] },
   // A block with features= (LiaScript splits the argument at its commas).
   { id: 'feat', mode: 'eval', options: ['features=run', 'repl', 'visualize', 'tests', 'ide', 'coverage', 'listtree', 'tree'], editors: [{ text: 'v = 5', fill: 'start' }] },
 ]
@@ -65,7 +66,24 @@ customElements.define('lia-editor', class extends HTMLElement {
     }, 10)
   }
 })
+// A block whose text is "held" also has the macro's wait for its text held
+// (the timer of editorTextTimeout ms it starts on "ready", in the same
+// event): both go on only at release(), when the check says so. So the
+// check of ▶ needs no timing: ▶ held back until either would never send.
+window.held = []
+window.release = () => { for (const go of window.held.splice(0)) go() }
+const setTimeoutOriginal = window.setTimeout.bind(window)
+let holdTextWait = false
+window.setTimeout = (callback, delay, ...rest) => {
+  if (holdTextWait && delay === ${textTimeout}) {
+    holdTextWait = false
+    window.held.push(() => setTimeoutOriginal(callback, 0, ...rest))
+    return 0
+  }
+  return setTimeoutOriginal(callback, delay, ...rest)
+}
 window.readyAt = {}
+// Before the macro's own listener (it is added later, by @onload).
 window.addEventListener('message', (event) => {
   if (event.data?.type !== 'glpython:ready') return
   const content = [...document.querySelectorAll('.lia-slide__content')].find((element) => element.querySelector('iframe').contentWindow === event.source)
@@ -73,7 +91,10 @@ window.addEventListener('message', (event) => {
   window.readyAt[id] = Date.now()
   for (const editor of content.querySelectorAll('lia-editor')) {
     const fill = Number(editor.dataset.fill)
-    if (editor.dataset.fill !== 'start' && editor.dataset.fill !== 'null') window.setTimeout(() => { editor.value = editor.dataset.text }, fill)
+    if (editor.dataset.fill === 'held') {
+      holdTextWait = true
+      window.held.push(() => { editor.value = editor.dataset.text })
+    } else if (editor.dataset.fill !== 'start' && editor.dataset.fill !== 'null') window.setTimeout(() => { editor.value = editor.dataset.text }, fill)
   }
 })
 </script>
@@ -135,13 +156,12 @@ try {
       failures.push(`${label}: ${error.message}`)
     }
   }
-  // What this catches: ▶ held back until the block's text arrives (1000 ms
-  // after "ready" here) or until the macro stops waiting for it (2000 ms).
-  // So the time counts from the click itself, in the page (Playwright's
-  // click first waits for the button to be stable and scrolls it into view,
-  // which took up to ~400 ms on a busy machine, P58), to the message's
-  // arrival in the embed; 250 ms is far below either wait. The click must
-  // come before the text, or the check would prove nothing.
+  // What this catches: ▶ held back until the block's text arrives or until
+  // the macro stops waiting for it (editorTextTimeout). Both are held here
+  // until the run and the test have arrived in the embed, so a macro that
+  // waits for either never sends them and the check fails; how fast the
+  // machine is doesn't matter (until P74 it allowed 250 ms from the click,
+  // which a busy runner exceeded).
   // What a button copies: the clipboard gets a mark first, then the click,
   // then we wait until the copy has replaced the mark (writing to the
   // clipboard is asynchronous; a fixed wait could read the mark, P58).
@@ -153,22 +173,23 @@ try {
   }
   await check('▶ and «Tests» usable while the first program waits', async () => {
     assert.equal(await runButton.isEnabled(), true, '▶ is disabled')
-    await tab.evaluate(() => {
-      window.clickedAt = null
-      document.querySelector('#glpython-run-click').addEventListener('click', () => { window.clickedAt ??= Date.now() }, { capture: true, once: true })
-    })
-    await runButton.click()
-    await tab.locator('#glpython-tests-click').click()
-    await embed('click').evaluate(() => new Promise((resolve) => {
-      const done = () => window.received.filter((message) => message.type !== 'glpython:reset').length >= 2
-      if (done()) return resolve()
-      const timer = setInterval(() => { if (done()) { clearInterval(timer); resolve() } }, 10)
-    }))
-    const clickedAt = await tab.evaluate(() => window.clickedAt)
-    assert.ok(clickedAt - await readyAt('click') < 1000, `the click came ${clickedAt - await readyAt('click')} ms after "ready", after the text: the check can't tell`)
-    const messages = await received('click')
-    assert.deepEqual(messages.map((message) => message.type), ['glpython:run', 'glpython:test'])
-    assert.ok(messages[0].at - clickedAt < 250, `the run came ${messages[0].at - clickedAt} ms after the click`)
+    assert.equal(await tab.evaluate(() => window.held.length), 2, 'the text and the macro\'s wait for it are held')
+    try {
+      await runButton.click()
+      await tab.locator('#glpython-tests-click').click()
+      await embed('click').evaluate(() => new Promise((resolve, reject) => {
+        const done = () => window.received.filter((message) => message.type !== 'glpython:reset').length >= 2
+        if (done()) return resolve()
+        const timer = setInterval(() => { if (done()) { clearInterval(timer); resolve() } }, 10)
+        // Only if they never come: then ▶ waits for what is held.
+        setTimeout(() => { clearInterval(timer); reject(new Error('▶ and «Tests» sent nothing while the text and the macro\'s wait were held: they wait for the text')) }, 30000)
+      }))
+      const messages = await received('click')
+      assert.deepEqual(messages.map((message) => message.type), ['glpython:run', 'glpython:test'])
+      assert.equal(messages[0].source, '', 'the run carries the block as it is then')
+    } finally {
+      await tab.evaluate(() => window.release())
+    }
   })
 
   // Past the longest wait: every first program has gone out (or not).
