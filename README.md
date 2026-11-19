@@ -62,8 +62,9 @@ window.__glpythonMount = (args, send) => {
   const embedUrl = channel === "dev" ? `${embedOrigin}/glpython-editor/dev/index.html` : `${embedOrigin}/glpython-editor/index.html`
   const [sessionId, mode, ...optionArguments] = args
   // Optional per block, separated by spaces in any order: "box",
-  // "substitution" or "tree" presets the visualizer's mode ("tree" only with
-  // the feature "tree"), URLs of shared Python files to load as libraries,
+  // "substitution" or "tree" presets the visualizer ("box" and
+  // "substitution" without trees, "tree" = «Ersetzung» with the option
+  // «Ausdrücke als Bäume auswerten», only with the feature "tree"), URLs of shared Python files to load as libraries,
   // e.g. @GLPython.eval(box https://…/parser.py), and "hidelibraries" (not
   // listed below the buttons).
   // LiaScript splits macro arguments at commas, so "features=run,repl" arrives
@@ -79,8 +80,8 @@ window.__glpythonMount = (args, send) => {
   // "features=run,repl,…" shows only these parts (the course builds its
   // profiles from it); without it, everything shows - except "coverage"
   // (after Tests, the lines no example executed), "listtree" (lists such
-  // as ["+", 2, 3] also drawn as a tree) and "tree" (the visualizer's mode
-  // «Baum»), which a course switches on explicitly. "large" makes the code
+  // as ["+", 2, 3] also drawn as a tree) and "tree" (the visualizer's option
+  // «Ausdrücke als Bäume auswerten»), which a course switches on explicitly. "large" makes the code
   // bigger (20px, line height 1.6), e.g. for a demo on the projector; it has
   // no height of its own.
   const featureNames = ["run", "tests", "visualize", "reset", "repl", "export", "ide", "coverage", "listtree", "tree"]
@@ -1200,9 +1201,10 @@ def quadrat(x):
 
 The visualizer shows a call to a function whose body is a single `return` either
 as a box or replaced by its return expression (substitution, the default), and
-learners can switch with the toggle in its toolbar. To preset the mode for one
-block, pass `box` or `substitution` (or, with the feature `tree`, `tree`) to
-`@GLPython.eval` or `@GLPython.visual`:
+learners can switch with the toggle in its toolbar («Kasten | Ersetzung»). To
+preset the mode for one block, pass `box` or `substitution` (or, with the
+feature `tree`, `tree`: «Ersetzung» with the expressions as trees, see below)
+to `@GLPython.eval` or `@GLPython.visual`:
 
 ```python
 def quadrat(x):
@@ -1212,8 +1214,9 @@ quadrat(7)
 ```
 @GLPython.visual(box)
 
-Without an argument the block uses the mode the learner last chose, and
-substitution at first.
+`box` and `substitution` also switch the trees off. Without an argument the
+block uses the mode and the trees option the learner last chose, and
+substitution without trees at first.
 
 ## Buttons and profiles
 
@@ -1275,7 +1278,7 @@ form and 1,185 in the compact one).
 Libraries are read-only in the IDE (a lock, no editing, renaming or deleting),
 as they are here. A block with `features=` passes them on: the IDE then shows
 the same parts (▶, Tests, Visualisieren, the console's input line, the →
-chain export, coverage, `listtree`, «Baum»; `ide` and `reset` mean nothing
+chain export, coverage, `listtree`, the trees option; `ide` and `reset` mean nothing
 there), as the starting state of that IDE tab - its ⋮ «Optionen» can switch
 each part, e.g. for a teacher looking at a hand-in. A block without
 `features=` passes nothing, and the IDE shows what it always does. A link longer than 2,083 characters - OneNote, for one, cuts
@@ -1314,17 +1317,21 @@ window, and in the console, where such a value gets a «Baum» button next to
 Baum zeigen»). Each tree is described by the list's own text for screen
 readers.
 
-`tree` isn't part of «everything» either. It gives the visualizer a third
-mode, **Baum**, next to «Kasten» and «Ersetzung»: an expression is shown as
-its tree while Python evaluates it. One step replaces the expression by its
-tree, then each step of «Ersetzung» turns a subtree into its value, and one
-step puts the value back in the line - `x = 2 + 3 * 4` takes 5 steps instead
-of 3. A function with a single `return <expression>` is replaced by that
-expression's tree; any other call keeps its box below the tree, which says why
-(«`notenschnitt` hat lokale Variablen – der Aufruf wird als Kasten gezeigt.»,
-also in «Ersetzung»). Labels are Python's (`+`, `quadrat`, `[ ]`), with no
-parentheses. Without `tree` there's no «Baum» button. To start a block in
-«Baum», pass `tree` too: `@GLPython.visual(tree features=visualize,tree)`.
+`tree` isn't part of «everything» either. It gives the visualizer's «⋯
+Optionen» the switch **Ausdrücke als Bäume auswerten** (until P65 a third
+mode, «Baum»): an expression is shown as its tree while Python evaluates it,
+in «Kasten» and in «Ersetzung». One step replaces the expression by its tree,
+then each step of the mode turns a subtree into its value, and one step puts
+the value back in the line - `x = 2 + 3 * 4` takes 5 steps instead of 3. In
+«Ersetzung» a function with a single `return <expression>` is replaced by that
+expression's tree; any other call - in «Kasten» every call - has its box in
+the tree, in the call's place, with the trees of its own lines inside. With
+trees, a box has no note why it stays a box («`notenschnitt` hat lokale
+Variablen – …», which «Ersetzung» without trees shows): the box in the call's
+place says it. Labels are Python's (`+`, `quadrat`, `[ ]`), with no
+parentheses. Without `tree` there's no switch. To start a block in
+«Ersetzung» with trees, pass `tree` too:
+`@GLPython.visual(tree features=visualize,tree)`.
 `large` makes the code 20px (line height 1.6), e.g. for the projector in
 presentation mode. It doesn't change the block's height or its buttons.
 
